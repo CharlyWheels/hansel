@@ -46,13 +46,14 @@ enum Permissions {
     static func calendarStatus() -> PermissionStatus {
         switch EKEventStore.authorizationStatus(for: .event) {
         case .fullAccess: return .granted
-        case .denied, .restricted: return .denied
+        // Write-only is a deliberate choice in System Settings; asking again on every
+        // launch would not change it.
+        case .denied, .restricted, .writeOnly: return .denied
         default: return .unknown
         }
     }
 
-    static func requestCalendarAccess() async -> Bool {
-        let store = EKEventStore()
+    static func requestCalendarAccess(on store: EKEventStore = EKEventStore()) async -> Bool {
         do {
             return try await store.requestFullAccessToEvents()
         } catch {

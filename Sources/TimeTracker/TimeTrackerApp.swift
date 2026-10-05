@@ -33,11 +33,6 @@ struct TimeTrackerApp: App {
         let ctrl = TimerController(modelContext: ctx)
         let idle = IdleMonitor(modelContext: ctx)
         let activity = ActivityMonitor(modelContext: ctx, idleMonitor: idle)
-        let calendar = CalendarService(
-            modelContext: ctx,
-            timerController: ctrl,
-            idleMonitor: idle
-        )
         let engine = SuggestionEngine(modelContext: ctx)
         let watch = ActivityWatchdog(
             timerController: ctrl,
@@ -67,6 +62,12 @@ struct TimeTrackerApp: App {
         }
         // --- Focus pipeline -------------------------------------------------------
         let meetings = MeetingProvider()
+        let calendar = CalendarService(
+            modelContext: ctx,
+            timerController: ctrl,
+            idleMonitor: idle,
+            meetingProvider: meetings
+        )
         meeting.trustworthyMeetingInProgress = { [weak meetings] in
             meetings?.trustworthyMeetingInProgress() ?? false
         }
@@ -201,8 +202,10 @@ struct TimeTrackerApp: App {
         completionService.start()
         arbiter.start()
         promptCenter.start()
-        Task { await calendarService.start() }
-        Task { await meetingProvider.start() }
+        Task {
+            await meetingProvider.start()
+            calendarService.start()
+        }
         reportQuarantinedStoreIfAny()
         AppLogger.ui.info("Background services started")
         AppLogger.log("ui", level: .info, "services_started")

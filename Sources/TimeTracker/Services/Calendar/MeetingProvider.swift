@@ -54,11 +54,14 @@ final class MeetingProvider {
 
     func start() async {
         if Permissions.calendarStatus() != .granted {
-            guard await Permissions.requestCalendarAccess() else {
+            // Ask on the store we will read from, then reset it: a store created before
+            // the grant can keep returning no calendars until it is reset.
+            guard await Permissions.requestCalendarAccess(on: store) else {
                 AppLogger.calendar.warning("Calendar access not granted")
                 AppLogger.log("calendar", level: .warning, "access_denied")
                 return
             }
+            store.reset()
         }
         storeChangedObserver = NotificationCenter.default.addObserver(
             forName: .EKEventStoreChanged, object: store, queue: .main
@@ -96,7 +99,7 @@ final class MeetingProvider {
     func trustworthyMeetingInProgress(at now: Date = Date()) -> Bool {
         meetings(from: now, to: now).contains {
             $0.start <= now && now < $0.end
-            && AttendanceFilter.weight(for: $0, allowedCalendarIds: allowedCalendarIds) > 0
+            && AttendanceFilter.allowsColdStart($0, allowedCalendarIds: allowedCalendarIds)
         }
     }
 

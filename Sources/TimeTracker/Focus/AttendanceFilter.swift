@@ -52,6 +52,16 @@ enum AttendanceFilter {
         return Similarity.clamp01(weight)
     }
 
+    /// Whether an event may start a timer from cold, with nothing else to go on.
+    ///
+    /// Stricter than `weight > 0`: a "free" hold (focus time) and an invitation the
+    /// user never answered both score above zero, yet neither says the user is in it.
+    static func allowsColdStart(_ meeting: MeetingWindow, allowedCalendarIds: Set<String>?) -> Bool {
+        if meeting.showsAsFree { return false }
+        if meeting.attendance == .pending { return false }
+        return weight(for: meeting, allowedCalendarIds: allowedCalendarIds) > 0
+    }
+
     /// True when the microphone (or a call app) corroborates the scheduled meeting,
     /// which promotes the boundary to a "hard" one the arbiter may act on immediately.
     static func isCorroborated(callShareAfter: Double) -> Bool {

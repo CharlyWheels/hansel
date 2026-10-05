@@ -1,183 +1,133 @@
 import Foundation
-import EventKit
+import AppKit
 import SwiftData
 
-/// Reads iCloud calendars (including shared) via EventKit, schedules per-event timers,
-/// and asks `TimerController` to auto-start when an event begins.
+/// Starts the timer from cold when a trustworthy calendar event begins.
+///
+/// Event data comes from `MeetingProvider`, whose cache is keyed by *occurrence*
+/// (`eventIdentifier#start`) and refreshed on a wall clock. The previous version kept
+/// its own `EKEventStore` and per-event `DispatchSourceTimer`s, which had three bugs:
+/// `event(withIdentifier:)` returned the first occurrence of a recurring series (a
+/// daily standup started an entry back-dated to the day the series was created),
+/// uptime-clock deadlines fired late after the Mac slept, and the 24 h horizon was
+/// only refreshed on store changes. Polling a fresh list every 30 s has none of them.
+///
+/// Switching *while* an entry runs is the arbiter's job; this only starts from cold.
 @MainActor
 final class CalendarService {
-    private let store = EKEventStore()
     private let modelContext: ModelContext
     private weak var timerController: TimerController?
     private weak var idleMonitor: IdleMonitor?
+    private weak var meetingProvider: MeetingProvider?
 
-    private var scheduledTimers: [String: DispatchSourceTimer] = [:]
-    private var storeChangedObserver: NSObjectProtocol?
+    private var pollTimer: Timer?
+    private var wakeObserver: NSObjectProtocol?
+
+    /// How late an event may still start a timer: covers sleep, a busy main thread,
+    /// and coming back from idle a little after the meeting began.
+    static let catchUpSeconds: TimeInterval = 30 * 60
 
     init(
         modelContext: ModelContext,
         timerController: TimerController,
-        idleMonitor: IdleMonitor?
+        idleMonitor: IdleMonitor?,
+        meetingProvider: MeetingProvider
     ) {
         self.modelContext = modelContext
         self.timerController = timerController
         self.idleMonitor = idleMonitor
+        self.meetingProvider = meetingProvider
     }
 
-    /// Requests calendar access if needed, then starts watching.
-    func start() async {
-        if Permissions.calendarStatus() != .granted {
-            let granted = await Permissions.requestCalendarAccess()
-            guard granted else {
-                AppLogger.calendar.warning("Calendar access not granted")
-                AppLogger.log("calendar", level: .warning, "access_denied")
-                return
-            }
+    func start() {
+        stop()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
         }
-        storeChangedObserver = NotificationCenter.default.addObserver(
-            forName: .EKEventStoreChanged,
-            object: store,
-            queue: .main
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in await self?.refreshSchedule() }
+            MainActor.assumeIsolated { self?.tick() }
         }
         idleMonitor?.onTransition { [weak self] isIdle in
-            if !isIdle { Task { @MainActor in self?.fireBackfilledIfAny() } }
+            if !isIdle { Task { @MainActor in self?.tick() } }
         }
-        await refreshSchedule()
+        tick()
+        AppLogger.log("calendar", level: .info, "calendar_autostart_started")
     }
 
     func stop() {
-        if let obs = storeChangedObserver {
-            NotificationCenter.default.removeObserver(obs)
-            storeChangedObserver = nil
+        pollTimer?.invalidate()
+        pollTimer = nil
+        if let obs = wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(obs)
+            wakeObserver = nil
         }
-        cancelAllTimers()
     }
 
-    // MARK: - Scheduling
+    // MARK: - Tick
 
-    private func refreshSchedule() async {
-        cancelAllTimers()
-        let calendars = store.calendars(for: .event).filter(Self.isICloudCalendar)
-        guard !calendars.isEmpty else {
-            AppLogger.calendar.info("No iCloud calendars found")
-            AppLogger.log("calendar", level: .info, "no_icloud_calendars")
-            return
-        }
+    private func tick() {
+        guard let controller = timerController, let provider = meetingProvider else { return }
         let now = Date()
-        let end = now.addingTimeInterval(24 * 3600)
-        let predicate = store.predicateForEvents(withStart: now, end: end, calendars: calendars)
-        let events = store.events(matching: predicate)
-        var scheduled = 0
-        for event in events where (event.startDate ?? .distantPast) > now {
-            guard isTrustworthy(event) else { continue }
-            scheduleTrigger(for: event)
-            syncLink(for: event)
-            scheduled += 1
-        }
-        AppLogger.calendar.info("Scheduled \(scheduled, privacy: .public) upcoming events from \(calendars.count, privacy: .public) iCloud calendar(s)")
-        AppLogger.log("calendar", level: .info, "scheduled count=\(scheduled)")
-    }
-
-    private func scheduleTrigger(for event: EKEvent) {
-        guard let eventId = event.eventIdentifier, let startDate = event.startDate else { return }
-        let delay = max(0, startDate.timeIntervalSinceNow)
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + delay)
-        timer.setEventHandler { [weak self] in
-            Task { @MainActor in self?.fireEvent(eventId: eventId) }
-        }
-        timer.resume()
-        scheduledTimers[eventId] = timer
-    }
-
-    private func cancelAllTimers() {
-        scheduledTimers.values.forEach { $0.cancel() }
-        scheduledTimers.removeAll()
-    }
-
-    // MARK: - Firing
-
-    private func fireEvent(eventId: String) {
-        guard let event = store.event(withIdentifier: eventId),
-              let controller = timerController else { return }
+        let inProgress = provider.meetings(from: now, to: now)
+            .filter { $0.start <= now && now < $0.end }
 
         if controller.isRunning {
-            AppLogger.calendar.info("Event fired while timer running — not switching. title=\(event.title ?? "", privacy: .public)")
-            AppLogger.log("calendar", level: .info, "fire_while_running title=\(event.title ?? "")")
+            // Something is already tracked. Remember these occurrences as handled so
+            // they cannot start a back-dated entry later, once the user stops.
+            for meeting in inProgress { markHandled(meeting, entryID: nil) }
             return
         }
-        if idleMonitor?.isIdle == true {
-            // Defer — we'll trigger on idle-exit.
-            if let link = fetchLink(eventId: eventId) {
-                link.lastFired = nil
-                try? modelContext.save()
-            }
-            AppLogger.calendar.notice("Event fired while idle — deferring")
-            AppLogger.log("calendar", level: .notice, "fire_while_idle title=\(event.title ?? "")")
-            return
-        }
-        start(controller: controller, event: event)
-    }
+        // Never start while the user is away; the next tick after they return will.
+        if idleMonitor?.isIdle == true { return }
 
-    private func fireBackfilledIfAny() {
-        // When user returns from idle, start any missed event whose start was within the last 30 min.
-        guard let controller = timerController, !controller.isRunning else { return }
-        let now = Date()
-        let since = now.addingTimeInterval(-30 * 60)
-        let calendars = store.calendars(for: .event).filter(Self.isICloudCalendar)
-        let predicate = store.predicateForEvents(withStart: since, end: now, calendars: calendars)
-        let recent = store.events(matching: predicate)
-            .sorted { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) }
+        let handled = Set(inProgress.compactMap { fetchLink(eventId: $0.eventId)?.lastFired != nil ? $0.eventId : nil })
+        guard let (meeting, startAt) = Self.coldStart(
+            meetings: inProgress,
+            now: now,
+            handledIds: handled,
+            latestEnd: controller.latestEndedAt(),
+            allowedCalendarIds: provider.allowedCalendarIds
+        ) else { return }
 
-        for event in recent {
-            guard let eventId = event.eventIdentifier else { continue }
-            if let link = fetchLink(eventId: eventId), link.lastFired != nil { continue }
-            start(controller: controller, event: event)
-            break
-        }
-    }
-
-    /// Whether this event may start a timer at all.
-    ///
-    /// The old code fired for any event on any calendar, which is the main reason the
-    /// tracker "followed the calendar too much": declined invitations, all-day events,
-    /// birthdays, subscribed calendars and "focus time" holds could all yank the timer.
-    /// Switching *while* an entry runs is the arbiter's job; this gate only governs
-    /// starting from cold.
-    private func isTrustworthy(_ event: EKEvent) -> Bool {
-        guard let facts = MeetingProvider.facts(from: event) else { return false }
-        let allowed = UserDefaults.standard.array(forKey: "calendar.allowedIds") as? [String]
-        let allowSet = (allowed?.isEmpty == false) ? Set(allowed!) : nil
-        let weight = AttendanceFilter.weight(for: facts, allowedCalendarIds: allowSet)
-        if weight <= 0 {
-            AppLogger.calendar.info("Event not trustworthy — not starting. title=\(event.title ?? "", privacy: .public)")
-            AppLogger.log("calendar", level: .info, "event_untrusted title=\(event.title ?? "") attendance=\(facts.attendance.rawValue) allDay=\(facts.isAllDay) free=\(facts.showsAsFree)")
-            return false
-        }
-        return true
-    }
-
-    private func start(controller: TimerController, event: EKEvent) {
-        guard isTrustworthy(event) else { return }
-        let (role, project, customer) = classify(event: event)
-        let title = event.title ?? "Calendar event"
-        let startAt = event.startDate ?? Date()
+        let (role, project, customer) = classify(title: meeting.title)
         controller.startFromCalendar(
-            title: title,
+            title: meeting.title,
             startAt: startAt,
             role: role,
             project: project,
             customer: customer,
-            eventIdentifier: event.eventIdentifier ?? ""
+            eventIdentifier: meeting.eventId
         )
-        if let link = fetchLink(eventId: event.eventIdentifier ?? "") {
-            link.lastFired = Date()
-            try? modelContext.save()
+        markHandled(meeting, entryID: controller.runningEntry?.id)
+        AppLogger.calendar.info("Started timer for a calendar event")
+        AppLogger.log("calendar", level: .info, "auto_started late=\(Int(now.timeIntervalSince(meeting.start)))s")
+    }
+
+    /// Which in-progress event, if any, should start a timer now, and from when.
+    ///
+    /// Pure so the rules are testable: the event must be trustworthy, not already
+    /// handled, and have begun within the catch-up window. The entry is back-dated to
+    /// the event's start, but never over the end of the last entry the user closed.
+    static func coldStart(
+        meetings: [MeetingWindow],
+        now: Date,
+        handledIds: Set<String>,
+        latestEnd: Date?,
+        allowedCalendarIds: Set<String>?
+    ) -> (MeetingWindow, Date)? {
+        let eligible = meetings.filter { meeting in
+            meeting.start <= now && now < meeting.end
+                && now.timeIntervalSince(meeting.start) <= catchUpSeconds
+                && !handledIds.contains(meeting.eventId)
+                && AttendanceFilter.allowsColdStart(meeting, allowedCalendarIds: allowedCalendarIds)
         }
-        AppLogger.calendar.info("Started timer for event: \(title, privacy: .public)")
-        AppLogger.log("calendar", level: .info, "auto_started title=\(title)")
+        // The most recently started event is the one the user is most likely in.
+        guard let meeting = eligible.max(by: { $0.start < $1.start }) else { return nil }
+        var startAt = meeting.start
+        if let latestEnd { startAt = max(startAt, min(latestEnd, now)) }
+        return (meeting, startAt)
     }
 
     // MARK: - Classification
@@ -191,15 +141,15 @@ final class CalendarService {
     /// Acme's project and customer. A one-word event title matched almost anything.
     /// Exact-match-or-nothing is the correct trade — a nil classification is harmless,
     /// a confidently wrong one is not.
-    private func classify(event: EKEvent) -> (Role?, Project?, Customer?) {
-        let descriptor = FetchDescriptor<TimeEntry>(
+    private func classify(title: String) -> (Role?, Project?, Customer?) {
+        let target = Self.normalize(title)
+        guard !target.isEmpty else { return (nil, nil, nil) }
+        var descriptor = FetchDescriptor<TimeEntry>(
             predicate: #Predicate<TimeEntry> { $0.isHumanConfirmed == true },
             sortBy: [SortDescriptor(\TimeEntry.startAt, order: .reverse)]
         )
+        descriptor.fetchLimit = 500
         let entries = (try? modelContext.fetch(descriptor)) ?? []
-        let target = Self.normalize(event.title ?? "")
-        guard !target.isEmpty else { return (nil, nil, nil) }
-
         if let match = entries.first(where: { Self.normalize($0.title) == target }) {
             return (match.role, match.project, match.customer)
         }
@@ -210,20 +160,21 @@ final class CalendarService {
         s.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    // MARK: - CalendarEventLink
+    // MARK: - CalendarEventLink (keyed by occurrence)
 
-    private func syncLink(for event: EKEvent) {
-        guard let eventId = event.eventIdentifier else { return }
-        if let link = fetchLink(eventId: eventId) {
-            if let start = event.startDate { link.lastSeenStart = start }
-            link.lastSeenTitle = event.title ?? ""
+    private func markHandled(_ meeting: MeetingWindow, entryID: UUID?) {
+        if let link = fetchLink(eventId: meeting.eventId) {
+            guard link.lastFired == nil else { return }
+            link.lastFired = Date()
+            link.linkedEntryID = entryID
         } else {
-            let link = CalendarEventLink(
-                eventIdentifier: eventId,
-                lastSeenStart: event.startDate ?? Date(),
-                lastSeenTitle: event.title ?? ""
-            )
-            modelContext.insert(link)
+            modelContext.insert(CalendarEventLink(
+                eventIdentifier: meeting.eventId,
+                linkedEntryID: entryID,
+                lastSeenStart: meeting.start,
+                lastSeenTitle: meeting.title,
+                lastFired: Date()
+            ))
         }
         try? modelContext.save()
     }
@@ -234,12 +185,4 @@ final class CalendarService {
         )
         return try? modelContext.fetch(descriptor).first
     }
-
-    // MARK: - Calendars
-
-    /// Use every calendar the event store exposes. The old iCloud-only filter missed
-    /// sources whose title wasn't literally "iCloud" (localized OS, account email as source,
-    /// Google/Exchange accounts, etc.). If the user wants to narrow this later, we add a
-    /// calendar-chooser setting.
-    private static func isICloudCalendar(_ calendar: EKCalendar) -> Bool { true }
 }
