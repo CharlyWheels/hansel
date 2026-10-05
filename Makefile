@@ -14,7 +14,9 @@ ENTITLEMENTS := Resources/TimeTracker.entitlements
 # Accessibility, Automation and Keychain access on it, so each rebuild loses those
 # grants. A stable self-signed certificate named "Hansel Dev" keeps them; see README.
 # Override with `make app SIGN_IDENTITY="Apple Development: ..."`.
-SIGN_IDENTITY ?= $(shell security find-identity -v -p codesigning 2>/dev/null | grep -q '"Hansel Dev"' && echo "Hansel Dev" || echo "-")
+# No `-v`: a self-signed certificate is reported as "not trusted" and excluded by it,
+# yet signs fine — and its designated requirement is what keeps the grants stable.
+SIGN_IDENTITY ?= $(shell security find-identity -p codesigning 2>/dev/null | grep -q '"Hansel Dev"' && echo "Hansel Dev" || echo "-")
 
 INSTALL_DIR := /Applications
 INSTALLED_APP := $(INSTALL_DIR)/$(APP_NAME).app
