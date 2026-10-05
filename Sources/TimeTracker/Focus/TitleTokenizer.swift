@@ -45,6 +45,12 @@ enum TitleTokenizer {
     /// usually carries the identity ("github.com/acme").
     static func hostKey(from url: String?) -> String? {
         guard let url, !url.isEmpty else { return nil }
+        // A document open in an editor: the folder it lives in is the closest thing to
+        // a "site" — usually the project or repo.
+        if let parsed = URL(string: url), parsed.isFileURL {
+            let folder = parsed.deletingLastPathComponent().lastPathComponent.lowercased()
+            return folder.isEmpty || folder == "/" ? nil : "file:\(folder)"
+        }
         guard let parsed = URL(string: url), let host = parsed.host, !host.isEmpty else {
             return nil
         }

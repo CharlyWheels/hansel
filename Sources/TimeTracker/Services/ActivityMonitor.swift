@@ -98,11 +98,12 @@ final class ActivityMonitor {
         // Not work: the previous sample keeps standing for this span.
         if Self.isIgnored(bundleId) { return }
 
-        let axTitle = axFocusedWindowTitle(pid: app.processIdentifier)
+        let ax = axWindowContext(pid: app.processIdentifier)
+        let axTitle = ax.title
         let timestamp = Date()
 
         guard browserBundleIDs.contains(bundleId), let source = Self.browserScript(bundleId: bundleId) else {
-            record(timestamp: timestamp, bundleId: bundleId, appName: appName, windowTitle: axTitle, url: nil)
+            record(timestamp: timestamp, bundleId: bundleId, appName: appName, windowTitle: ax.title, url: ax.url)
             return
         }
         guard !browserQueryInFlight else { return }
@@ -180,22 +181,44 @@ final class ActivityMonitor {
 
     private var loggedMissingAX = false
 
-    private func axFocusedWindowTitle(pid: pid_t) -> String? {
+    /// The focused window's title and, for document-based apps (editors, Preview,
+    /// Office, Xcode…), the open document's location.
+    private func axWindowContext(pid: pid_t) -> (title: String?, url: String?) {
         guard AXIsProcessTrusted() else {
             if !loggedMissingAX {
                 loggedMissingAX = true
                 AppLogger.log("activity", level: .warning, "ax_missing window titles unavailable")
             }
-            return nil
+            return (nil, nil)
         }
         let appElement = AXUIElementCreateApplication(pid)
         var windowRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &windowRef) == .success,
-              let windowRef else { return nil }
+              let windowRef else { return (nil, nil) }
         let window = windowRef as! AXUIElement
         var titleRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef) == .success else { return nil }
-        return titleRef as? String
+        _ = AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef)
+        var documentRef: CFTypeRef?
+        _ = AXUIElementCopyAttributeValue(window, kAXDocumentAttribute as CFString, &documentRef)
+        return Self.windowContext(title: titleRef as? String, document: documentRef as? String)
+    }
+
+    /// Combines a window title with its document. The document becomes the sample's
+    /// URL, so the segmenter and the prompt see which file or folder it is; an empty
+    /// title is replaced by "file — folder".
+    nonisolated static func windowContext(title: String?, document: String?) -> (title: String?, url: String?) {
+        let trimmedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let document, !document.isEmpty else {
+            return (trimmedTitle?.isEmpty == false ? trimmedTitle : nil, nil)
+        }
+        let url = URL(string: document)
+        var resolvedTitle = trimmedTitle
+        if resolvedTitle?.isEmpty ?? true, let url, url.isFileURL {
+            let file = url.lastPathComponent
+            let folder = url.deletingLastPathComponent().lastPathComponent
+            resolvedTitle = folder.isEmpty ? file : "\(file) — \(folder)"
+        }
+        return (resolvedTitle?.isEmpty == false ? resolvedTitle : nil, document)
     }
 
     // MARK: - AppleScript (browsers)
