@@ -363,6 +363,7 @@ struct DayTimelineView: View {
                     startAt: snapped.start,
                     endAt: snapped.end,
                     isConfirmed: true,
+                    isHumanConfirmed: true,
                     source: .manual
                 )
                 modelContext.insert(entry)

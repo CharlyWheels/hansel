@@ -97,6 +97,9 @@ struct EntryEditorView: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
                     entry.refreshBillableCache()
+                    // An explicit save means a human vouched for this entry, so it
+                    // becomes eligible as a classification example.
+                    entry.isHumanConfirmed = true
                     try? modelContext.save()
                     dismiss()
                 }

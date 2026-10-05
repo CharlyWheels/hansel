@@ -94,9 +94,12 @@ final class SuggestionEngine {
         return all.filter { ($0.end ?? Date()) >= since }
     }
 
+    /// Few-shot examples for the classification prompt. Filters on `isHumanConfirmed`,
+    /// NOT `isConfirmed` — the latter is true for every auto-created entry that merely
+    /// ran to completion, which would feed the model its own past guesses as ground truth.
     private func fetchRecentEntries(limit: Int) -> [TimeEntry] {
         var descriptor = FetchDescriptor<TimeEntry>(
-            predicate: #Predicate<TimeEntry> { $0.isConfirmed == true },
+            predicate: #Predicate<TimeEntry> { $0.isHumanConfirmed == true },
             sortBy: [SortDescriptor(\TimeEntry.startAt, order: .reverse)]
         )
         descriptor.fetchLimit = limit

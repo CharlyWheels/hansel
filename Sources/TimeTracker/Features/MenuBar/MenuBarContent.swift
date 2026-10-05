@@ -162,7 +162,11 @@ struct MenuBarContent: View {
         }
     }
 
+    /// Called whenever the user edits the running entry (title, role, project, todo).
+    /// Touching it by hand is what promotes an auto-started entry to a trustworthy
+    /// classification example.
     private func saveEntry() {
+        controller.runningEntry?.isHumanConfirmed = true
         try? modelContext.save()
     }
 

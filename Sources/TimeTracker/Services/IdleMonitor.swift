@@ -13,8 +13,20 @@ final class IdleMonitor {
     private let modelContext: ModelContext
     private(set) var isIdle: Bool = false            // effective state (hid OR lock)
     private(set) var isScreenLocked: Bool = false
+
+    /// Fallback used when the user has never touched the Settings stepper.
+    private let defaultThresholdSeconds: TimeInterval
+
+    /// Live-read from UserDefaults on every tick so the Settings stepper takes effect
+    /// without a restart, matching how EntryCompletionService reads its thresholds.
+    ///
+    /// Previously this was a stored property initialised to a hard-coded 5 minutes and
+    /// never assigned again, while `SettingsView` happily wrote `idleThresholdMinutes`
+    /// that nothing read — the stepper was inert.
     var thresholdSeconds: TimeInterval {
-        didSet { AppLogger.idle.debug("threshold changed to \(self.thresholdSeconds)s") }
+        guard let minutes = UserDefaults.standard.object(forKey: "idleThresholdMinutes") as? Int
+        else { return defaultThresholdSeconds }
+        return TimeInterval(max(1, minutes)) * 60
     }
 
     private var timer: Timer?
@@ -23,7 +35,7 @@ final class IdleMonitor {
 
     init(modelContext: ModelContext, thresholdSeconds: TimeInterval = 5 * 60) {
         self.modelContext = modelContext
-        self.thresholdSeconds = thresholdSeconds
+        self.defaultThresholdSeconds = thresholdSeconds
     }
 
     func start() {

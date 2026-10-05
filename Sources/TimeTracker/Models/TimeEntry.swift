@@ -17,6 +17,17 @@ final class TimeEntry {
     var project: Project?
     var customer: Customer?
     var isConfirmed: Bool
+    /// True only when a human created this entry or explicitly approved it.
+    ///
+    /// Distinct from `isConfirmed`, which merely means "closed". `stop()` used to set
+    /// `isConfirmed = true` on *every* entry including ones the AI and the calendar
+    /// created unattended, and both `SuggestionEngine.fetchRecentEntries` and
+    /// `CalendarService.classify` then fed those rows back to the model as ground
+    /// truth — the app taught the model its own mistakes and called them examples.
+    /// Retrieval for classification must filter on this flag, never on `isConfirmed`.
+    ///
+    /// Default lives on the declaration (not in `init`) so SwiftData can migrate.
+    var isHumanConfirmed: Bool = false
     var sourceRaw: String
     var billableCached: Bool
     var notes: String?
@@ -31,6 +42,7 @@ final class TimeEntry {
         project: Project? = nil,
         customer: Customer? = nil,
         isConfirmed: Bool = false,
+        isHumanConfirmed: Bool = false,
         source: EntrySource = .manual,
         billableCached: Bool = false,
         notes: String? = nil,
@@ -44,6 +56,7 @@ final class TimeEntry {
         self.project = project
         self.customer = customer
         self.isConfirmed = isConfirmed
+        self.isHumanConfirmed = isHumanConfirmed
         self.sourceRaw = source.rawValue
         self.billableCached = billableCached
         self.notes = notes
@@ -54,6 +67,9 @@ final class TimeEntry {
         get { EntrySource(rawValue: sourceRaw) ?? .manual }
         set { sourceRaw = newValue.rawValue }
     }
+
+    /// A closed entry no human has vouched for. Drives the review UI.
+    var needsReview: Bool { endAt != nil && !isHumanConfirmed }
 
     var duration: TimeInterval? {
         guard let endAt else { return nil }

@@ -6,6 +6,7 @@ enum DraftParser {
         let role: String?
         let project: String?
         let customer: String?
+        let todo: String?
         let rationale: String?
     }
 
@@ -24,11 +25,13 @@ enum DraftParser {
         let role = resolveRole(parsed.role, in: context)
         let project = resolveProject(parsed.project, in: context)
         let customer = resolveCustomer(parsed.customer, in: context) ?? project?.customer
+        let todo = resolveTodo(parsed.todo, in: context)
         return EntryDraft(
             title: parsed.title,
             role: role,
             project: project,
             customer: customer,
+            todo: todo,
             rationale: parsed.rationale ?? providerLabel,
             raw: text
         )
@@ -55,5 +58,26 @@ enum DraftParser {
         guard let name, !name.isEmpty else { return nil }
         let target = name.lowercased()
         return ctx.customers.first { $0.name.lowercased() == target }
+    }
+
+    /// Resolves the model's todo reference, preferring the short id it was given.
+    ///
+    /// Falls back to an exact breadcrumb or title match for models that echo the text
+    /// instead of the id. An ambiguous title resolves to nil rather than a guess — a
+    /// missing link costs nothing, a wrong one silently mis-files the entry.
+    private static func resolveTodo(_ key: String?, in ctx: SuggestionContext) -> Todo? {
+        guard let raw = key?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty, raw.lowercased() != "null" else { return nil }
+
+        let indexed = PromptBuilder.flattenTodos(roots: ctx.activeTodos)
+        if let hit = indexed.first(where: { $0.key.caseInsensitiveCompare(raw) == .orderedSame }) {
+            return hit.todo
+        }
+        let byPath = indexed.filter {
+            $0.todo.breadcrumbPath.caseInsensitiveCompare(raw) == .orderedSame
+        }
+        if byPath.count == 1 { return byPath[0].todo }
+        let byTitle = indexed.filter { $0.todo.title.caseInsensitiveCompare(raw) == .orderedSame }
+        return byTitle.count == 1 ? byTitle[0].todo : nil
     }
 }

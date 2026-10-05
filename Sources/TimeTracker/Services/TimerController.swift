@@ -73,12 +73,13 @@ final class TimerController {
         startAt: Date = Date(),
         role: Role? = nil,
         project: Project? = nil,
-        customer: Customer? = nil
+        customer: Customer? = nil,
+        todo: Todo? = nil
     ) {
         start(
             title: title, startAt: startAt,
             role: role, project: project, customer: customer,
-            source: .aiAutoStart
+            source: .aiAutoStart, todo: todo
         )
     }
 
@@ -88,7 +89,8 @@ final class TimerController {
         role: Role?,
         project: Project?,
         customer: Customer?,
-        source: EntrySource
+        source: EntrySource,
+        todo: Todo? = nil
     ) {
         guard state == .watching else {
             AppLogger.timer.warning("start ignored — state=\(String(describing: self.state), privacy: .public)")
@@ -104,7 +106,8 @@ final class TimerController {
             customer: customer,
             isConfirmed: false,
             source: source,
-            billableCached: BillableResolver.resolve(role: role, project: project, customer: customer)
+            billableCached: BillableResolver.resolve(role: role, project: project, customer: customer),
+            linkedTodo: todo
         )
         modelContext.insert(entry)
         try? modelContext.save()
@@ -133,6 +136,12 @@ final class TimerController {
         entry.endAt = clamped
         if entry.title.isEmpty { entry.title = "(untitled)" }
         entry.isConfirmed = true
+        // `isHumanConfirmed` is NOT set here for auto-created entries. Closing an entry
+        // is not the same as a human vouching for it: an AI- or calendar-started entry
+        // that simply ran to completion is a guess, not evidence. Only a manual start
+        // (the user pressed Start and typed the title) or an explicit edit counts.
+        // Without this distinction the classification prompt is fed its own output.
+        if entry.source == .manual { entry.isHumanConfirmed = true }
         entry.refreshBillableCache()
         do {
             try modelContext.save()

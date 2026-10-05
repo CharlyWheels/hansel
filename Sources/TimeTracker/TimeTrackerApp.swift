@@ -88,6 +88,7 @@ struct TimeTrackerApp: App {
     private func bootServicesOnce() {
         guard !servicesStarted else { return }
         servicesStarted = true
+        DataRetentionService.runIfDue(modelContext: container.mainContext)
         // IdleMonitor first so ActivityMonitor can skip sampling from the very first tick.
         idleMonitor.start()
         activityMonitor.start()

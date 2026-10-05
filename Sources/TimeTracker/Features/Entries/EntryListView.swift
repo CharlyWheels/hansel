@@ -163,6 +163,7 @@ struct EntryListView: View {
             startAt: now.addingTimeInterval(-3600),
             endAt: now,
             isConfirmed: true,
+            isHumanConfirmed: true,
             source: .manual
         )
         modelContext.insert(entry)

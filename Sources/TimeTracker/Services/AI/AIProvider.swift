@@ -27,6 +27,9 @@ struct EntryDraft {
     let role: Role?
     let project: Project?
     let customer: Customer?
+    /// Resolved from the short id the model returns (e.g. "T2"). Nil when the model
+    /// declined to pick one, named something unknown, or was ambiguous.
+    let todo: Todo?
     let rationale: String
     let raw: String
 }

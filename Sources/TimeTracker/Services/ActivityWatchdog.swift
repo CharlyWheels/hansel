@@ -83,7 +83,8 @@ final class ActivityWatchdog {
                 startAt: from,
                 role: draft.role,
                 project: draft.project,
-                customer: draft.customer
+                customer: draft.customer,
+                todo: draft.todo
             )
             AppLogger.timer.info("Watchdog auto-started timer: \(draft.title, privacy: .public)")
             AppLogger.log("timer", level: .info, "watchdog_autostart title=\(draft.title)")

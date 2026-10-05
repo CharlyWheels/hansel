@@ -160,9 +160,18 @@ final class CalendarService {
 
     // MARK: - Classification
 
+    /// Inherits role/project/customer from the most recent *human-confirmed* entry whose
+    /// title matches the event exactly (after normalization).
+    ///
+    /// The previous implementation also accepted a bidirectional substring match
+    /// (`n.contains(target) || target.contains(n)`). That was far too loose: an event
+    /// titled "Sync" matched a past entry "Sync roadmap Acme" and silently inherited
+    /// Acme's project and customer. A one-word event title matched almost anything.
+    /// Exact-match-or-nothing is the correct trade — a nil classification is harmless,
+    /// a confidently wrong one is not.
     private func classify(event: EKEvent) -> (Role?, Project?, Customer?) {
         let descriptor = FetchDescriptor<TimeEntry>(
-            predicate: #Predicate<TimeEntry> { $0.isConfirmed == true },
+            predicate: #Predicate<TimeEntry> { $0.isHumanConfirmed == true },
             sortBy: [SortDescriptor(\TimeEntry.startAt, order: .reverse)]
         )
         let entries = (try? modelContext.fetch(descriptor)) ?? []
@@ -170,12 +179,6 @@ final class CalendarService {
         guard !target.isEmpty else { return (nil, nil, nil) }
 
         if let match = entries.first(where: { Self.normalize($0.title) == target }) {
-            return (match.role, match.project, match.customer)
-        }
-        if let match = entries.first(where: {
-            let n = Self.normalize($0.title)
-            return !n.isEmpty && (n.contains(target) || target.contains(n))
-        }) {
             return (match.role, match.project, match.customer)
         }
         return (nil, nil, nil)
