@@ -16,6 +16,9 @@ struct ProjectsView: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 0) {
                 addRow.padding()
+                SuggestedRulesSection(projects: projects)
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
                 Divider()
                 List {
                     ForEach(projects) { project in

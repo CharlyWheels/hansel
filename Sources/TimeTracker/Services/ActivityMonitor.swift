@@ -35,7 +35,7 @@ final class ActivityMonitor {
     /// System surfaces that take focus without being work: a notification banner, the
     /// login window, the screen saver, and Hansel itself. Recording them made a burst
     /// of notifications look like a string of app switches.
-    static let ignoredBundleIDs: Set<String> = [
+    nonisolated static let ignoredBundleIDs: Set<String> = [
         "com.apple.UserNotificationCenter",
         "com.apple.notificationcenterui",
         "com.apple.loginwindow",
@@ -43,7 +43,7 @@ final class ActivityMonitor {
         "com.carlosrueda.hansel",
     ]
 
-    static func isIgnored(_ bundleId: String) -> Bool {
+    nonisolated static func isIgnored(_ bundleId: String) -> Bool {
         ignoredBundleIDs.contains(bundleId)
             || bundleId == Bundle.main.bundleIdentifier
     }
