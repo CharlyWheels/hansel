@@ -23,6 +23,9 @@ final class FocusPromptCenter {
         let decisionID: UUID
         let proposal: FocusPolicy.Proposal
         let previousTitle: String
+        /// The entry the question is about. An answer is only applied while this is
+        /// still the running entry.
+        let fromEntryID: UUID
         let createdAt: Date
         /// The running entry was too young to split, so accepting rewrites it.
         let isCorrection: Bool
@@ -36,6 +39,7 @@ final class FocusPromptCenter {
     private(set) var undoable: UndoRecord?
 
     struct UndoRecord: Equatable {
+        let decisionID: UUID?
         let previousEntryID: UUID
         let newEntryID: UUID
         let appliedAt: Date
@@ -60,6 +64,21 @@ final class FocusPromptCenter {
         self.timerController = timerController
         self.store = store
         self.modelContext = modelContext
+        timerController.onRunningEntryChange { [weak self] id in
+            self?.runningEntryChanged(to: id)
+        }
+    }
+
+    /// A question or undo about an entry that is no longer running is moot. Leaving it
+    /// up would let a late answer split, overwrite or reopen the wrong entry.
+    private func runningEntryChanged(to id: UUID?) {
+        if let pending, pending.fromEntryID != id {
+            resolve(pending, response: .superseded)
+            AppLogger.log("timer", level: .info, "switch_prompt_superseded reason=entry_changed")
+        }
+        if let undoable, undoable.newEntryID != id {
+            self.undoable = nil
+        }
     }
 
     private var expiryTimer: Timer?
@@ -82,6 +101,10 @@ final class FocusPromptCenter {
     // MARK: - Presenting
 
     func present(_ action: FocusPolicy.Action, decisionID: UUID, previousTitle: String) {
+        guard let fromEntryID = timerController?.runningEntry?.id else {
+            update(decisionID: decisionID, response: .superseded, toEntryID: nil)
+            return
+        }
         let proposal: FocusPolicy.Proposal
         let isCorrection: Bool
         switch action {
@@ -90,11 +113,17 @@ final class FocusPromptCenter {
         case let .switchTo(p): applyImmediately(p, decisionID: decisionID); return
         case .keep: return
         }
+        // A newer question replaces an older one. Close the old one in the log, but do
+        // not signal `onResolved`: the arbiter is already waiting on the new one.
+        if let old = pending {
+            update(decisionID: old.decisionID, response: .superseded, toEntryID: nil)
+        }
         pending = PendingSwitch(
             id: UUID(),
             decisionID: decisionID,
             proposal: proposal,
             previousTitle: previousTitle,
+            fromEntryID: fromEntryID,
             createdAt: Date(),
             isCorrection: isCorrection
         )
@@ -134,8 +163,7 @@ final class FocusPromptCenter {
     /// applied so no time is misattributed, then the entry is opened for editing.
     func switchAndEdit() {
         guard let pending, let controller = timerController else { return }
-        var plan = store.plan(from: pending.proposal)
-        if plan.title.isEmpty { plan.title = "" }
+        let plan = store.plan(from: pending.proposal)
         apply(plan, pending: pending, controller: controller, response: .switchedEdited)
         if let entry = controller.runningEntry { onRequestEdit?(entry) }
     }
@@ -158,12 +186,17 @@ final class FocusPromptCenter {
         let previousDescriptor = FetchDescriptor<TimeEntry>(
             predicate: #Predicate<TimeEntry> { $0.id == previousEntryID }
         )
-        guard let previous = try? modelContext.fetch(previousDescriptor).first else { return }
-        if let created = try? modelContext.fetch(newDescriptor).first {
-            modelContext.delete(created)
-        }
-        controller.resume(previous)
         self.undoable = nil
+        guard let previous = try? modelContext.fetch(previousDescriptor).first,
+              let created = try? modelContext.fetch(newDescriptor).first,
+              controller.undoSwitch(previous: previous, created: created)
+        else {
+            AppLogger.log("timer", level: .warning, "switch_undo_refused")
+            return
+        }
+        if let decisionID = undoable.decisionID {
+            update(decisionID: decisionID, response: .undone, toEntryID: nil)
+        }
         AppLogger.timer.notice("Undid last switch")
         AppLogger.log("timer", level: .notice, "switch_undone")
         onResolved?()
@@ -177,6 +210,15 @@ final class FocusPromptCenter {
         controller: TimerController,
         response: FocusUserResponse
     ) {
+        // Clear first: the switch changes the running entry, and the change listener
+        // must not mistake our own switch for the entry moving out from under us.
+        self.pending = nil
+        guard controller.runningEntry?.id == pending.fromEntryID else {
+            controller.endConfirming()
+            update(decisionID: pending.decisionID, response: .superseded, toEntryID: nil)
+            onResolved?()
+            return
+        }
         controller.endConfirming()
         let outcome = controller.switchTo(
             plan,
@@ -186,6 +228,7 @@ final class FocusPromptCenter {
         switch outcome {
         case let .switched(closed, opened, _):
             undoable = UndoRecord(
+                decisionID: pending.decisionID,
                 previousEntryID: closed, newEntryID: opened,
                 appliedAt: Date(), title: plan.title
             )
@@ -202,7 +245,6 @@ final class FocusPromptCenter {
             update(decisionID: pending.decisionID, response: response, toEntryID: nil)
         }
         try? modelContext.save()
-        self.pending = nil
         onResolved?()
     }
 
@@ -214,6 +256,7 @@ final class FocusPromptCenter {
         )
         if case let .switched(closed, opened, _) = outcome {
             undoable = UndoRecord(
+                decisionID: decisionID,
                 previousEntryID: closed, newEntryID: opened,
                 appliedAt: Date(), title: plan.title
             )
@@ -223,9 +266,9 @@ final class FocusPromptCenter {
     }
 
     private func resolve(_ pending: PendingSwitch, response: FocusUserResponse) {
+        self.pending = nil
         timerController?.endConfirming()
         update(decisionID: pending.decisionID, response: response, toEntryID: nil)
-        self.pending = nil
         onResolved?()
     }
 

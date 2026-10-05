@@ -366,8 +366,8 @@ struct DayTimelineView: View {
                     isHumanConfirmed: true,
                     source: .manual
                 )
-                modelContext.insert(entry)
-                try? modelContext.save()
+                // Not inserted yet: the editor inserts it on Save, so Cancel leaves
+                // nothing behind.
                 editingEntry = entry
             }
     }

@@ -27,6 +27,8 @@ final class ActivityWatchdog {
         idleMonitor?.onTransition { [weak self] isIdle in
             Task { @MainActor in
                 self?.windowStart = isIdle ? nil : Date()
+                // A draft in flight was for activity that has now stopped.
+                if isIdle { self?.pendingDraft?.cancel() }
             }
         }
         windowStart = (idleMonitor?.isIdle == true) ? nil : Date()
@@ -77,7 +79,11 @@ final class ActivityWatchdog {
         guard let controller = timerController, !controller.isRunning else { return }
         do {
             let draft = try await suggestionEngine.draft(from: from, to: Date())
-            guard !controller.isRunning else { return }
+            // The model call can take a while; the world may have moved meanwhile.
+            guard !Task.isCancelled, !controller.isRunning, idleMonitor?.isIdle != true else {
+                AppLogger.log("timer", level: .info, "watchdog_draft_discarded")
+                return
+            }
             controller.startFromAI(
                 title: draft.title,
                 startAt: from,

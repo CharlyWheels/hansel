@@ -133,4 +133,7 @@ enum FocusUserResponse: String, Codable, CaseIterable, Sendable {
     case timedOut
     /// Applied, then undone.
     case undone
+    /// Replaced by a newer question, or made moot because the entry it was about
+    /// stopped or changed before the user answered.
+    case superseded
 }
