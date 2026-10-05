@@ -40,6 +40,8 @@ final class ActivityMonitor {
         "com.apple.notificationcenterui",
         "com.apple.loginwindow",
         "com.apple.ScreenSaver.Engine",
+        "com.apple.SecurityAgent",
+        "com.apple.accessibility.universalAccessAuthWarn",
         "com.carlosrueda.hansel",
     ]
 
