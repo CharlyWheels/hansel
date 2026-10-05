@@ -16,12 +16,14 @@ struct PermissionBanner: View {
                     Label("Accessibility permission missing", systemImage: "exclamationmark.triangle.fill")
                         .font(.callout.weight(.medium))
                         .foregroundStyle(.orange)
-                    Text("Hansel can't read window titles, so it guesses your task from app names only. In Accessibility, turn Hansel off and on again.")
+                    Text("Hansel can't read window titles, so it guesses your task from app names only. Allow Hansel in Accessibility. If it already looks on, remove it with \"–\" and allow it again.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Button("Open Accessibility Settings") {
-                        Permissions.openAccessibilitySettings()
+                    Button("Allow Accessibility…") {
+                        if !Permissions.requestAccessibility() {
+                            Permissions.openAccessibilitySettings()
+                        }
                     }
                     .buttonStyle(.bordered)
                 }

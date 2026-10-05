@@ -264,6 +264,8 @@ struct TimeTrackerApp: App {
             calendar.start()
         }
         reportQuarantinedStoreIfAny()
+        // Registers this exact build with macOS; shows the system dialog only if needed.
+        if Permissions.accessibilityStatus() != .granted { Permissions.requestAccessibility() }
         AppLogger.ui.info("Background services started")
         AppLogger.log("ui", level: .info, "services_started")
     }

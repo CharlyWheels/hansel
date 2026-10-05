@@ -35,7 +35,18 @@ enum Permissions {
         AXIsProcessTrusted() ? .granted : .denied
     }
 
-    /// Opens the Accessibility pane. macOS does not allow prompting directly.
+    /// Asks macOS for Accessibility, which registers *this* binary in the list.
+    ///
+    /// Hansel never asked before, so after a rebuild the row in System Settings still
+    /// belonged to an older signature: toggling it changed nothing for the running app.
+    /// macOS shows its dialog only when the app is not already listed.
+    @discardableResult
+    static func requestAccessibility() -> Bool {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        return AXIsProcessTrustedWithOptions(options)
+    }
+
+    /// Opens the Accessibility pane.
     static func openAccessibilitySettings() {
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
         NSWorkspace.shared.open(url)
