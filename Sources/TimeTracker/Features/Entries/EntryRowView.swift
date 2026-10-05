@@ -52,6 +52,8 @@ struct EntryRowView: View {
         case .manual: label = "manual"
         case .calendar: label = "calendar"
         case .aiAutoStart: label = "ai"
+        case .aiSwitch: label = "ai switch"
+        case .userCorrected: label = "corrected"
         }
         return Text(label)
             .font(.caption2)

@@ -28,7 +28,10 @@ final class TimerController {
         recoverRunningEntry()
     }
 
-    var isRunning: Bool { state == .running }
+    /// `.confirming` means "running, with a boundary proposal awaiting the user", so it
+    /// counts as running everywhere: the menu-bar icon stays red, the popover keeps
+    /// showing the running section, and nothing may start on top of it.
+    var isRunning: Bool { state == .running || state == .confirming }
 
     var elapsed: TimeInterval {
         guard let entry = runningEntry else { return 0 }
@@ -92,11 +95,10 @@ final class TimerController {
         source: EntrySource,
         todo: Todo? = nil
     ) {
-        guard state == .watching else {
-            AppLogger.timer.warning("start ignored — state=\(String(describing: self.state), privacy: .public)")
-            AppLogger.log("timer", level: .warning, "start ignored state=\(state)")
-            return
-        }
+        // No `guard state == .watching` here any more. Silently dropping starts is how
+        // the app lost events: a meeting could begin while another task ran and nothing
+        // happened at all. Callers that must not clobber a running entry go through
+        // `switchTo`, which closes the current one first.
         let entry = TimeEntry(
             title: title,
             startAt: startAt,
@@ -128,7 +130,7 @@ final class TimerController {
     /// clamped to be `>= startAt` so we never produce a negative-duration entry.
     @discardableResult
     func stop(at endDate: Date) -> TimeEntry? {
-        guard state == .running, let entry = runningEntry else {
+        guard isRunning, let entry = runningEntry else {
             AppLogger.timer.warning("stop called while not running")
             return nil
         }
@@ -159,13 +161,180 @@ final class TimerController {
     }
 
     func cancel() {
-        guard state == .running, let entry = runningEntry else { return }
+        guard isRunning, let entry = runningEntry else { return }
         AppLogger.timer.notice("Timer cancelled without saving")
         AppLogger.log("timer", level: .notice, "cancel")
         modelContext.delete(entry)
         try? modelContext.save()
         runningEntry = nil
         state = .watching
+    }
+
+    // MARK: - Switching
+
+    /// What a new entry should look like. Kept separate from `TimeEntry` so callers can
+    /// describe an intent without touching the store.
+    struct EntryPlan: Equatable {
+        var title: String
+        var role: Role?
+        var project: Project?
+        var customer: Customer?
+        var todo: Todo?
+
+        init(
+            title: String,
+            role: Role? = nil,
+            project: Project? = nil,
+            customer: Customer? = nil,
+            todo: Todo? = nil
+        ) {
+            self.title = title
+            self.role = role
+            self.project = project
+            self.customer = customer
+            self.todo = todo
+        }
+    }
+
+    enum SwitchOutcome: Equatable {
+        case switched(closed: UUID, opened: UUID, at: Date)
+        case correctedInPlace(id: UUID)
+        case started(id: UUID)
+        case rejected(String)
+    }
+
+    /// Move to a different task, closing the current entry at `boundaryAt` and opening
+    /// the next one at the same instant.
+    ///
+    /// The boundary is retroactive by design: the user is told about a change some
+    /// minutes after it happened, so the previous entry must end when the work actually
+    /// stopped, not when the question was answered.
+    ///
+    /// SwiftData offers no real multi-object transaction, so this does the pair of
+    /// mutations under a single `save()` and rolls back to a pre-image on failure
+    /// rather than pretending to be atomic.
+    @discardableResult
+    func switchTo(
+        _ plan: EntryPlan,
+        boundaryAt: Date,
+        source: EntrySource,
+        now: Date = Date()
+    ) -> SwitchOutcome {
+        let current = runningEntry.map {
+            TimelineGuard.Segment(id: $0.id, start: $0.startAt, end: $0.endAt)
+        }
+        switch TimelineGuard.plan(current: current, boundaryAt: boundaryAt, now: now) {
+
+        case .reject(let reason):
+            AppLogger.timer.warning("switch rejected: \(reason, privacy: .public)")
+            AppLogger.log("timer", level: .warning, "switch_rejected reason=\(reason)")
+            return .rejected(reason)
+
+        case .startFresh(let at):
+            start(
+                title: plan.title, startAt: at,
+                role: plan.role, project: plan.project, customer: plan.customer,
+                source: source, todo: plan.todo
+            )
+            let id = runningEntry?.id ?? UUID()
+            AppLogger.log("timer", level: .info, "switch_started id=\(id) title=\(plan.title)")
+            return .started(id: id)
+
+        case .correctInPlace:
+            guard let entry = runningEntry else { return .rejected("nothing running") }
+            apply(plan, to: entry)
+            entry.source = source == .aiSwitch ? .aiAutoStart : source
+            entry.refreshBillableCache()
+            try? modelContext.save()
+            AppLogger.timer.info("Corrected running entry in place: \(plan.title, privacy: .public)")
+            AppLogger.log("timer", level: .info, "switch_corrected id=\(entry.id) title=\(plan.title)")
+            return .correctedInPlace(id: entry.id)
+
+        case let .openNew(closeAt, startAt):
+            guard let previous = runningEntry else { return .rejected("nothing running") }
+            // Pre-image for rollback.
+            let previousEnd = previous.endAt
+            let previousConfirmed = previous.isConfirmed
+
+            previous.endAt = closeAt
+            if previous.title.isEmpty { previous.title = "(untitled)" }
+            previous.isConfirmed = true
+            previous.refreshBillableCache()
+
+            let next = TimeEntry(
+                title: plan.title,
+                startAt: startAt,
+                endAt: nil,
+                role: plan.role,
+                project: plan.project,
+                customer: plan.customer,
+                isConfirmed: false,
+                source: source,
+                billableCached: BillableResolver.resolve(
+                    role: plan.role, project: plan.project, customer: plan.customer
+                ),
+                linkedTodo: plan.todo
+            )
+            next.previousEntryID = previous.id
+            previous.supersededByID = next.id
+            modelContext.insert(next)
+
+            do {
+                try modelContext.save()
+            } catch {
+                modelContext.rollback()
+                previous.endAt = previousEnd
+                previous.isConfirmed = previousConfirmed
+                previous.supersededByID = nil
+                AppLogger.timer.error("Switch save failed: \(error.localizedDescription, privacy: .public)")
+                AppLogger.log("timer", level: .error, "switch_save_failed: \(error.localizedDescription)")
+                return .rejected("save failed")
+            }
+
+            runningEntry = next
+            state = .running
+            AppLogger.timer.info("Switched to \(plan.title, privacy: .public) at boundary")
+            AppLogger.log(
+                "timer", level: .info,
+                "switch id=\(next.id) from=\(previous.id) at=\(closeAt.timeIntervalSince1970) source=\(source.rawValue)"
+            )
+            return .switched(closed: previous.id, opened: next.id, at: closeAt)
+        }
+    }
+
+    /// Re-open a closed entry as the running one. The undo primitive for a switch.
+    func resume(_ entry: TimeEntry) {
+        if let current = runningEntry, current.id != entry.id {
+            _ = stop(at: Date())
+        }
+        entry.endAt = nil
+        entry.supersededByID = nil
+        entry.isConfirmed = false
+        try? modelContext.save()
+        runningEntry = entry
+        state = .running
+        AppLogger.timer.info("Resumed entry \(entry.id.uuidString, privacy: .public)")
+        AppLogger.log("timer", level: .info, "resumed id=\(entry.id)")
+    }
+
+    /// Marks the running entry as awaiting a user decision, so the UI can reflect it
+    /// without anything being mutated yet.
+    func beginConfirming() {
+        guard state == .running else { return }
+        state = .confirming
+    }
+
+    func endConfirming() {
+        guard state == .confirming else { return }
+        state = .running
+    }
+
+    private func apply(_ plan: EntryPlan, to entry: TimeEntry) {
+        entry.title = plan.title
+        entry.role = plan.role
+        entry.project = plan.project
+        entry.customer = plan.customer
+        if let todo = plan.todo { entry.linkedTodo = todo }
     }
 
     // MARK: - Recovery

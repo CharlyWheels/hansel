@@ -5,6 +5,10 @@ enum EntrySource: String, Codable, CaseIterable, Hashable {
     case manual
     case calendar
     case aiAutoStart
+    /// Opened by an accepted boundary proposal, splitting a previous entry.
+    case aiSwitch
+    /// Rewritten in place after the user corrected a proposal.
+    case userCorrected
 }
 
 @Model
@@ -32,6 +36,16 @@ final class TimeEntry {
     var billableCached: Bool
     var notes: String?
     var linkedTodo: Todo?
+
+    // MARK: - Split chain (undo)
+    //
+    // Defaults live on the declarations so SwiftData lightweight migration applies
+    // them; a default supplied only in `init` does not migrate.
+
+    /// The entry this one was split off from, if any.
+    var previousEntryID: UUID? = nil
+    /// The entry that superseded this one when it was split.
+    var supersededByID: UUID? = nil
 
     init(
         id: UUID = UUID(),
