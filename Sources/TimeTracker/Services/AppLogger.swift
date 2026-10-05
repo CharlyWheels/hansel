@@ -42,7 +42,13 @@ final class FileLogSink: @unchecked Sendable {
         return f
     }()
 
+    /// False inside the test runner. Tests drive the real services, and their log
+    /// lines (including deliberately failing model calls) used to land in the user's
+    /// own log file, mixed in with real activity.
+    static let isEnabled: Bool = NSClassFromString("XCTestCase") == nil
+
     func write(category: String, level: String, message: String) {
+        guard Self.isEnabled else { return }
         let now = Date()
         queue.async { [isoFormatter, fileNameFormatter] in
             let line = Self.jsonLine(
