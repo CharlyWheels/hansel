@@ -71,6 +71,7 @@ final class CalendarService {
         let events = store.events(matching: predicate)
         var scheduled = 0
         for event in events where (event.startDate ?? .distantPast) > now {
+            guard isTrustworthy(event) else { continue }
             scheduleTrigger(for: event)
             syncLink(for: event)
             scheduled += 1
@@ -138,7 +139,28 @@ final class CalendarService {
         }
     }
 
+    /// Whether this event may start a timer at all.
+    ///
+    /// The old code fired for any event on any calendar, which is the main reason the
+    /// tracker "followed the calendar too much": declined invitations, all-day events,
+    /// birthdays, subscribed calendars and "focus time" holds could all yank the timer.
+    /// Switching *while* an entry runs is the arbiter's job; this gate only governs
+    /// starting from cold.
+    private func isTrustworthy(_ event: EKEvent) -> Bool {
+        guard let facts = MeetingProvider.facts(from: event) else { return false }
+        let allowed = UserDefaults.standard.array(forKey: "calendar.allowedIds") as? [String]
+        let allowSet = (allowed?.isEmpty == false) ? Set(allowed!) : nil
+        let weight = AttendanceFilter.weight(for: facts, allowedCalendarIds: allowSet)
+        if weight <= 0 {
+            AppLogger.calendar.info("Event not trustworthy — not starting. title=\(event.title ?? "", privacy: .public)")
+            AppLogger.log("calendar", level: .info, "event_untrusted title=\(event.title ?? "") attendance=\(facts.attendance.rawValue) allDay=\(facts.isAllDay) free=\(facts.showsAsFree)")
+            return false
+        }
+        return true
+    }
+
     private func start(controller: TimerController, event: EKEvent) {
+        guard isTrustworthy(event) else { return }
         let (role, project, customer) = classify(event: event)
         let title = event.title ?? "Calendar event"
         let startAt = event.startDate ?? Date()

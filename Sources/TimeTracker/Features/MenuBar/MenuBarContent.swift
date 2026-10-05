@@ -275,7 +275,7 @@ struct MenuBarContent: View {
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(";", modifiers: [.command])
             }
-            Text("Start a manual timer, or let the app auto-start from a calendar event or 10 min of activity (Phase 2+).")
+            Text("Start a timer, or let Hansel start one from a meeting or 10 min of activity. It will ask before switching tasks.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }

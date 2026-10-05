@@ -8,6 +8,8 @@ struct SettingsView: View {
                 .tabItem { Label("General", systemImage: "gearshape") }
             PermissionsSettingsView()
                 .tabItem { Label("Permissions", systemImage: "hand.raised") }
+            CalendarSettingsView()
+                .tabItem { Label("Calendar", systemImage: "calendar") }
             AISettingsView()
                 .tabItem { Label("AI", systemImage: "sparkles") }
             DebugSettingsView()
@@ -23,6 +25,7 @@ struct GeneralSettingsView: View {
     @AppStorage("promptIdleMinutes") private var promptIdleMinutes: Int = 2
     @AppStorage("autoEndIdleMinutes") private var autoEndIdleMinutes: Int = 5
     @AppStorage("periodicCheckMinutes") private var periodicCheckMinutes: Int = 90
+    @AppStorage("switchPromptTimeoutMinutes") private var switchPromptTimeoutMinutes: Int = 10
     @State private var launchAtLogin: Bool = LaunchAtLogin.isEnabled
 
     var body: some View {
@@ -44,6 +47,8 @@ struct GeneralSettingsView: View {
                     .onChange(of: autoEndIdleMinutes) { _, _ in clampPromptIdle() }
                 Stepper("Periodic check-in every: \(periodicCheckMinutes) min",
                         value: $periodicCheckMinutes, in: 15...480, step: 15)
+                Stepper("Unanswered switch question expires after: \(switchPromptTimeoutMinutes) min",
+                        value: $switchPromptTimeoutMinutes, in: 2...60)
                 Text("When a timer is running and you come back from being briefly idle (or the entry has been running a long time), you'll be asked if you're still working on it. If you're idle past the auto-end threshold, the entry is closed at the moment you became idle.")
                     .font(.caption).foregroundStyle(.secondary)
             }
