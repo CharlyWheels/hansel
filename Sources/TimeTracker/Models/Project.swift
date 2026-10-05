@@ -44,10 +44,10 @@ final class Project {
 extension Project {
     /// The color shown wherever this project's entries appear. Uses `colorHex` if set,
     /// otherwise a deterministic hash of the project name so identical projects always
-    /// look the same.
+    /// look the same — across launches too, which `hashValue` (seeded per process) did not.
     var displayColor: Color {
         if let color = Color(hex: colorHex) { return color }
-        let hue = Double(abs(name.hashValue) % 360) / 360
+        let hue = StableHash.unitInterval(name)
         return Color(hue: hue, saturation: 0.72, brightness: 0.78)
     }
 }

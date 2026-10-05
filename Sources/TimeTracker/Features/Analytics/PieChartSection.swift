@@ -29,11 +29,12 @@ struct PieChartSection: View {
         self.period = period
         self.customHeader = customHeader
         _groupBy = State(initialValue: defaultGroupBy)
+        // Once per update, not once per property access: it was recomputed over every
+        // entry about ten times per render.
+        self.report = AnalyticsAggregator.report(entries: entries, period: period)
     }
 
-    private var report: AnalyticsReport {
-        AnalyticsAggregator.report(entries: entries, period: period)
-    }
+    private let report: AnalyticsReport
 
     private var rows: [BreakdownRow] {
         switch groupBy {
@@ -157,14 +158,17 @@ struct PieChartSection: View {
     }
 
     private var donut: some View {
-        Chart(rows) { row in
+        // Colour each sector explicitly, with the same function as the legend. Letting
+        // Charts pick colours by name merged rows that share a name and left the legend
+        // guessing the palette order.
+        Chart(Array(rows.enumerated()), id: \.element.id) { index, row in
             SectorMark(
                 angle: .value("Hours", row.total),
                 innerRadius: .ratio(0.62),
                 angularInset: 1.5
             )
             .cornerRadius(3)
-            .foregroundStyle(by: .value("Name", row.name))
+            .foregroundStyle(legendColor(for: index))
         }
         .chartLegend(.hidden)
         .chartBackground { _ in
@@ -204,7 +208,7 @@ struct PieChartSection: View {
         }
     }
 
-    /// Match Swift Charts' default categorical palette order.
+    /// One colour per row, shared by the chart and the legend.
     private func legendColor(for index: Int) -> Color {
         let palette: [Color] = [.blue, .green, .orange, .purple, .red, .teal, .pink, .yellow, .indigo, .mint, .cyan, .brown]
         return palette[index % palette.count]

@@ -24,11 +24,11 @@ struct DayTimelineView: View {
         filter: #Predicate<TimeEntry> { $0.endAt == nil }
     ) private var runningEntries: [TimeEntry]
 
-    @Query(sort: [SortDescriptor(\ActivitySample.timestamp)])
-    private var allSamples: [ActivitySample]
-
-    @Query(sort: [SortDescriptor(\IdleInterval.start)])
-    private var allIdles: [IdleInterval]
+    /// Only the selected day's activity. A @Query over every sample ever recorded
+    /// (~3,000 a day) reloaded the whole table on each 30 s insert.
+    @State private var daySamples: [ActivitySample] = []
+    @State private var dayIdles: [IdleInterval] = []
+    private let activityRefresh = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
     // Visual tuning
     private let hourHeight: CGFloat = 64
@@ -51,17 +51,41 @@ struct DayTimelineView: View {
             }
         }
         .navigationTitle("Timeline")
-        .task(id: selectedDate) { loadCalendarPlaceholders() }
+        .task(id: selectedDate) {
+            reloadActivity()
+            loadCalendarPlaceholders()
+        }
+        .onReceive(activityRefresh) { _ in
+            if isToday { reloadActivity() }
+        }
         .sheet(item: $editingEntry) { entry in
             EntryEditorView(entry: entry)
                 .frame(minWidth: 480, minHeight: 360)
         }
     }
 
+    // MARK: - Activity
+
+    private func reloadActivity() {
+        // #Predicate cannot read computed properties of self; hoist into locals.
+        let start = dayStart
+        let end = dayEnd
+        let sampleDescriptor = FetchDescriptor<ActivitySample>(
+            predicate: #Predicate<ActivitySample> { $0.timestamp >= start && $0.timestamp < end },
+            sortBy: [SortDescriptor(\ActivitySample.timestamp)]
+        )
+        let idleDescriptor = FetchDescriptor<IdleInterval>(
+            predicate: #Predicate<IdleInterval> { $0.start < end && ($0.end ?? end) > start },
+            sortBy: [SortDescriptor(\IdleInterval.start)]
+        )
+        daySamples = (try? modelContext.fetch(sampleDescriptor)) ?? []
+        dayIdles = (try? modelContext.fetch(idleDescriptor)) ?? []
+    }
+
     // MARK: - Calendar placeholders
 
     private func loadCalendarPlaceholders() {
-        var status = EKEventStore.authorizationStatus(for: .event)
+        let status = EKEventStore.authorizationStatus(for: .event)
         if status == .notDetermined {
             Task {
                 _ = await Permissions.requestCalendarAccess()
@@ -75,7 +99,6 @@ struct DayTimelineView: View {
             calendarPlaceholders = []
             return
         }
-        _ = status
         let store = EKEventStore()
         // Use every calendar the user has. Subscribed / Birthday calendars are fine —
         // they just rarely have timed events, so they won't clutter the view.
@@ -164,16 +187,12 @@ struct DayTimelineView: View {
     }
 
     private var samples: [ActivitySample] {
-        let dayIdles = allIdles.filter { idle in
-            let end = idle.end ?? Date()
-            return idle.start < dayEnd && end > dayStart
-        }
-        return allSamples.filter { sample in
-            guard sample.timestamp >= dayStart && sample.timestamp < dayEnd else { return false }
+        let now = Date()
+        return daySamples.filter { sample in
             // Exclude samples that fall inside any idle interval — Carlos wants
             // "open and in use" only, not background apps during idle time.
             return !dayIdles.contains { idle in
-                let end = idle.end ?? Date()
+                let end = idle.end ?? now
                 return sample.timestamp >= idle.start && sample.timestamp <= end
             }
         }
@@ -311,7 +330,7 @@ struct DayTimelineView: View {
 
             // Real tracked entries on top.
             ForEach(entries) { entry in
-                EntryBlockView(entry: entry, hourHeight: hourHeight)
+                EntryBlockView(entry: entry, hourHeight: hourHeight, dayStart: dayStart, dayEnd: dayEnd)
                     .offset(y: yOffset(for: max(entry.startAt, dayStart)) + topInset)
                     .onTapGesture { editingEntry = entry }
                     .contextMenu {
@@ -327,7 +346,8 @@ struct DayTimelineView: View {
             // grows visibly.
             if let running = runningEntryOnDay {
                 TimelineView(.periodic(from: Date.distantPast, by: 30)) { ctx in
-                    EntryBlockView(entry: running, hourHeight: hourHeight, liveEnd: ctx.date)
+                    EntryBlockView(entry: running, hourHeight: hourHeight,
+                                   dayStart: dayStart, dayEnd: dayEnd, liveEnd: ctx.date)
                         .offset(y: yOffset(for: max(running.startAt, dayStart)) + topInset)
                         .onTapGesture { editingEntry = running }
                         .contextMenu {
@@ -459,7 +479,9 @@ struct DayTimelineView: View {
     // MARK: - Helpers
 
     private func colorFor(bundleId: String) -> Color {
-        let hue = Double(abs(bundleId.hashValue) % 360) / 360
+        // `hashValue` is seeded per process, so it gave every app a new colour on each
+        // launch. A stable hash keeps colours put.
+        let hue = StableHash.unitInterval(bundleId)
         return Color(hue: hue, saturation: 0.5, brightness: 0.72)
     }
 
@@ -524,13 +546,18 @@ private struct AppSession: Identifiable {
 private struct EntryBlockView: View {
     let entry: TimeEntry
     let hourHeight: CGFloat
+    /// The day being shown. The block is clipped to it, so an entry that crosses
+    /// midnight is drawn only for the part that falls on this day.
+    let dayStart: Date
+    let dayEnd: Date
     /// When the entry is running (endAt == nil) the parent passes the current tick here
     /// so the block height grows live. nil for finished entries.
     var liveEnd: Date? = nil
 
     var body: some View {
-        let end = liveEnd ?? entry.endAt ?? entry.startAt
-        let duration = max(0, end.timeIntervalSince(entry.startAt))
+        let end = min(liveEnd ?? entry.endAt ?? entry.startAt, dayEnd)
+        let start = max(entry.startAt, dayStart)
+        let duration = max(0, end.timeIntervalSince(start))
         let isRunning = entry.endAt == nil
         let height = max(22, CGFloat(duration / 3600) * hourHeight)
         let theme = EntryTheme(for: entry)
@@ -776,7 +803,7 @@ private struct EntryTheme {
             base = project.displayColor
         } else {
             let seed = entry.customer?.name ?? entry.title
-            let hue = Double(abs(seed.hashValue) % 360) / 360
+            let hue = StableHash.unitInterval(seed)
             base = Color(hue: hue, saturation: 0.72, brightness: 0.78)
         }
         self.accent = base

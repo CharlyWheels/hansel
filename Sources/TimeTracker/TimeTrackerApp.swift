@@ -1,8 +1,23 @@
 import SwiftUI
 import SwiftData
 
+/// Starts the background services when the app finishes launching.
+///
+/// They used to start from `.task` on the menu-bar label and the main window. A
+/// `MenuBarExtra` label is rendered into a status-item image, so its `.task` is not
+/// guaranteed to run, and the window is not shown at launch for an `LSUIElement` app:
+/// nothing might start until the user opened the window.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    @MainActor static var boot: (() -> Void)?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        MainActor.assumeIsolated { Self.boot?() }
+    }
+}
+
 @main
 struct TimeTrackerApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     let container: ModelContainer
 
     @State private var controller: TimerController
@@ -126,6 +141,14 @@ struct TimeTrackerApp: App {
         _arbiter = State(wrappedValue: focusArbiter)
         AppLogger.ui.info("TimeTrackerApp launched")
         AppLogger.log("ui", level: .info, "launch")
+
+        AppDelegate.boot = {
+            Self.bootServicesOnce(
+                container: c, idle: idle, audio: audio, meeting: meeting, activity: activity,
+                watchdog: watch, completion: completion, arbiter: focusArbiter, prompts: prompts,
+                meetings: meetings, calendar: calendar
+            )
+        }
     }
 
     var body: some Scene {
@@ -140,7 +163,6 @@ struct TimeTrackerApp: App {
                 .environment(controller)
                 .environment(completionService)
                 .environment(promptCenter)
-                .task { bootServicesOnce() }
         }
         .menuBarExtraStyle(.window)
 
@@ -151,7 +173,8 @@ struct TimeTrackerApp: App {
                 .environment(promptCenter)
                 .modelContainer(container)
                 .frame(minWidth: 960, minHeight: 640)
-                .task { bootServicesOnce() }
+                // Fallback only; the app delegate normally starts everything first.
+                .task { AppDelegate.boot?() }
         }
 
         Settings {
@@ -164,7 +187,7 @@ struct TimeTrackerApp: App {
         }
     }
 
-    @State private var servicesStarted = false
+    @MainActor private static var servicesStarted = false
 
     private static func exitIfAlreadyRunning() {
         guard let bundleId = Bundle.main.bundleIdentifier else { return }
@@ -179,7 +202,7 @@ struct TimeTrackerApp: App {
 
     /// The store could not be opened and was moved aside. Say so, with the path, rather
     /// than letting the user discover an empty app.
-    private func reportQuarantinedStoreIfAny() {
+    private static func reportQuarantinedStoreIfAny() {
         guard let path = AppModelContainer.quarantinedStorePath else { return }
         let alert = NSAlert()
         alert.messageText = "Hansel could not open its data"
@@ -193,22 +216,34 @@ struct TimeTrackerApp: App {
         }
     }
 
-    private func bootServicesOnce() {
+    private static func bootServicesOnce(
+        container: ModelContainer,
+        idle: IdleMonitor,
+        audio: AudioInputMonitor,
+        meeting: MeetingDetector,
+        activity: ActivityMonitor,
+        watchdog: ActivityWatchdog,
+        completion: EntryCompletionService,
+        arbiter: FocusArbiter,
+        prompts: FocusPromptCenter,
+        meetings: MeetingProvider,
+        calendar: CalendarService
+    ) {
         guard !servicesStarted else { return }
         servicesStarted = true
         DataRetentionService.runIfDue(modelContext: container.mainContext)
         // IdleMonitor first so ActivityMonitor can skip sampling from the very first tick.
-        idleMonitor.start()
-        audioMonitor.start()
-        meetingDetector.start()
-        activityMonitor.start()
+        idle.start()
+        audio.start()
+        meeting.start()
+        activity.start()
         watchdog.start()
-        completionService.start()
+        completion.start()
         arbiter.start()
-        promptCenter.start()
+        prompts.start()
         Task {
-            await meetingProvider.start()
-            calendarService.start()
+            await meetings.start()
+            calendar.start()
         }
         reportQuarantinedStoreIfAny()
         AppLogger.ui.info("Background services started")

@@ -23,8 +23,8 @@ video-call apps, conference URLs and the calendar. An accepted meeting you are v
 not attending scores below the threshold; a declined invitation, an all-day event or a
 block that shows as "free" scores zero.
 
-Nothing is changed without asking. A switch question offers three answers — *Sigo igual*,
-*Cambiar*, *Es otra cosa* — because "the boundary was wrong" and "the boundary was right
+Nothing is changed without asking. A switch question offers three answers — *Same task*,
+*Switch*, *Something else…* — because "the boundary was wrong" and "the boundary was right
 but the label was wrong" are different corrections, and only the second should teach the
 model a new label. Applied switches stay undoable for 15 minutes.
 

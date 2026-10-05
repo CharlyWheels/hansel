@@ -7,9 +7,9 @@ import Observation
 /// Nothing here mutates the timeline until the user says so — that is the whole point
 /// of the ask-first design. The three answers are deliberately distinct:
 ///
-///   - "Sigo igual"   the boundary was wrong
-///   - "Cambiar a X"  boundary and label both right
-///   - "Es otra cosa" boundary right, label wrong
+///   - "Same task"        the boundary was wrong
+///   - "Switch"           boundary and label both right
+///   - "Something else…"  boundary right, label wrong
 ///
 /// Two buttons would conflate the last two and record a false positive as an accepted
 /// proposal, poisoning the learning corpus in exactly the way the old `isConfirmed`
@@ -147,20 +147,20 @@ final class FocusPromptCenter {
 
     // MARK: - Answers
 
-    /// "Sigo igual" — the boundary was wrong.
+    /// "Same task" — the boundary was wrong.
     func keepCurrent() {
         guard let pending else { return }
         resolve(pending, response: .keptCurrent)
     }
 
-    /// "Cambiar a X" — boundary and label both right.
+    /// "Switch" — boundary and label both right.
     func applySwitch() {
         guard let pending, let controller = timerController else { return }
         let plan = store.plan(from: pending.proposal)
         apply(plan, pending: pending, controller: controller, response: .switched)
     }
 
-    /// "Es otra cosa…" — the boundary was right but the label was wrong. The split is
+    /// "Something else…" — the boundary was right but the label was wrong. The split is
     /// applied so no time is misattributed, then the entry is opened for editing.
     func switchAndEdit() {
         guard let pending, let controller = timerController else { return }

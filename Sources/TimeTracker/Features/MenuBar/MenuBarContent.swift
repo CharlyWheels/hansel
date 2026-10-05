@@ -10,14 +10,22 @@ struct MenuBarContent: View {
 
     @Query(sort: [SortDescriptor(\Project.name)]) private var projects: [Project]
     @Query(sort: [SortDescriptor(\Role.name)]) private var roles: [Role]
-    @Query(
-        filter: #Predicate<TimeEntry> { $0.endAt != nil },
-        sort: [SortDescriptor(\TimeEntry.startAt, order: .reverse)]
-    ) private var recentEntries: [TimeEntry]
+    /// Only the five shown, not every closed entry ever recorded.
+    @Query(MenuBarContent.recentDescriptor) private var recentEntries: [TimeEntry]
+
+    private static var recentDescriptor: FetchDescriptor<TimeEntry> {
+        var descriptor = FetchDescriptor<TimeEntry>(
+            predicate: #Predicate<TimeEntry> { $0.endAt != nil },
+            sortBy: [SortDescriptor(\TimeEntry.startAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = 5
+        return descriptor
+    }
     @Query(sort: [SortDescriptor(\Todo.sortOrder), SortDescriptor(\Todo.createdAt)])
     private var allTodos: [Todo]
 
     @State private var newTodoTitle: String = ""
+    @FocusState private var titleFocused: Bool
 
     private var activeTodos: [Todo] {
         allTodos.filter { !$0.isCompleted }
@@ -72,13 +80,13 @@ struct MenuBarContent: View {
                 Image(systemName: "arrow.triangle.branch")
                     .foregroundStyle(.orange)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("¿Sigues con \"\(pending.previousTitle)\"?")
+                    Text("Still on \"\(pending.previousTitle)\"?")
                         .font(.callout.weight(.medium))
                     if pending.hasLabel {
-                        Text("Parece que ahora estás en \"\(pending.proposedTitle)\".")
+                        Text("Looks like you're now on \"\(pending.proposedTitle)\".")
                             .font(.callout)
                     } else {
-                        Text("Detecté un cambio a las \(hhmm(pending.proposal.boundaryAt)), pero no sé en qué.")
+                        Text("Something changed at \(hhmm(pending.proposal.boundaryAt)), but I can't tell what.")
                             .font(.callout)
                     }
                     // Showing the evidence is what makes an automatic switch
@@ -90,17 +98,17 @@ struct MenuBarContent: View {
                 }
             }
             HStack(spacing: 6) {
-                Button("Sigo igual") { prompts.keepCurrent() }
+                Button("Same task") { prompts.keepCurrent() }
                     .buttonStyle(.bordered)
                 Spacer()
-                Button("Es otra cosa…") {
+                Button("Something else…") {
                     prompts.switchAndEdit()
                     openWindow(id: "main")
                     NSApp.activate(ignoringOtherApps: true)
                 }
                     .buttonStyle(.bordered)
                 if pending.hasLabel {
-                    Button("Cambiar") { prompts.applySwitch() }
+                    Button("Switch") { prompts.applySwitch() }
                         .buttonStyle(.borderedProminent)
                 }
             }
@@ -115,11 +123,11 @@ struct MenuBarContent: View {
         HStack(alignment: .center, spacing: 8) {
             Image(systemName: "arrow.uturn.backward.circle.fill")
                 .foregroundStyle(.blue)
-            Text("Cambiado a \"\(undo.title)\"")
+            Text("Switched to \"\(undo.title)\"")
                 .font(.callout)
                 .lineLimit(1)
             Spacer()
-            Button("Deshacer") { prompts.undoLastSwitch() }
+            Button("Undo") { prompts.undoLastSwitch() }
                 .buttonStyle(.borderless)
         }
         .padding(10)
@@ -205,7 +213,13 @@ struct MenuBarContent: View {
                 }
                 TextField("What are you working on?", text: $entry.title)
                     .textFieldStyle(.roundedBorder)
-                    .onChange(of: entry.title) { _, _ in saveEntry() }
+                    .focused($titleFocused)
+                    // Only typing counts as a human edit. The title also changes when a
+                    // switch replaces the running entry, and treating that as the user
+                    // vouching for it fed the model's own guess back as ground truth.
+                    .onChange(of: entry.title) { _, _ in
+                        if titleFocused { saveEntry() }
+                    }
 
                 HStack(spacing: 6) {
                     rolePicker(selection: Binding(

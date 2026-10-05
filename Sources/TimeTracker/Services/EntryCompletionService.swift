@@ -9,11 +9,12 @@ import Observation
 ///   1. **Away on return** — on the idle → active transition, if the user was away
 ///      ≥ `promptIdleMinutes` while an entry ran, ask whether to keep that time, drop
 ///      it from the entry, or end the entry where the absence began.
-///   2. **Activity drift** — every tick, compare `RuleEngine.evaluate()` on the last 15 min
-///      of activity samples against the running entry. If the inferred classification
-///      differs, across two consecutive checks, surface the prompt.
-///   3. **Periodic check-in** — entry running longer than `periodicCheckMinutes` and no
-///      prompt has been shown recently.
+///   2. **Periodic check-in** — entry running longer than `periodicCheckMinutes` and no
+///      prompt has been shown recently. Since the timer never stops by itself, this is
+///      what catches one left running by mistake.
+///
+/// Task *changes* are the `FocusArbiter`'s job. This service used to run its own
+/// rule-based "drift" check as well, which put a second, competing question on screen.
 ///
 /// UI reads `pendingPrompt` and calls `confirmContinue()`, `confirmEnd()`,
 /// `excludeAwayTime()` or `endAtAwayStart()`. Every answer is checked against the entry
@@ -53,9 +54,6 @@ final class EntryCompletionService {
     /// cooldown to expire.
     private var lastPrompt: (entryId: UUID, at: Date)?
     private let cooldown: TimeInterval = 30 * 60
-    /// Drift confirmation: drift must be detected across two consecutive 5-min checks.
-    private var lastDriftCheckAt: Date = .distantPast
-    private var driftStreak: Int = 0
 
     init(
         timerController: TimerController,
@@ -188,10 +186,7 @@ final class EntryCompletionService {
 
     private func tick() {
         guard let controller = timerController, controller.isRunning,
-              let entry = controller.runningEntry else {
-            driftStreak = 0
-            return
-        }
+              let entry = controller.runningEntry else { return }
         if idleMonitor?.isIdle == true {
             noteMeetingWhileIdle()
             return
@@ -199,63 +194,12 @@ final class EntryCompletionService {
         guard pendingPrompt == nil else { return }
         guard isCooldownPassed(for: entry) else { return }
 
-        // Periodic check-in: simplest check first.
+        // Periodic check-in.
         let runningFor = Date().timeIntervalSince(entry.startAt)
         let periodicThreshold = TimeInterval(periodicCheckMinutes) * 60
         if runningFor >= periodicThreshold {
             raiseDoneQuestion(for: entry, reason: "periodic")
-            return
         }
-
-        // Drift check — only every 5 min, and only after the entry has run long enough
-        // for drift to be meaningful.
-        if runningFor >= 15 * 60 {
-            evaluateDrift(for: entry)
-        }
-    }
-
-    private func evaluateDrift(for entry: TimeEntry) {
-        let now = Date()
-        guard now.timeIntervalSince(lastDriftCheckAt) >= 5 * 60 else { return }
-        lastDriftCheckAt = now
-
-        let windowStart = now.addingTimeInterval(-15 * 60)
-        let samples = fetchRecentSamples(from: windowStart, to: now)
-        let rules = fetchRules()
-        let hints = RuleEngine.evaluate(rules: rules, samples: samples)
-        if driftPresent(hints: hints, entry: entry) {
-            driftStreak += 1
-            AppLogger.log("timer", level: .debug, "completion_drift streak=\(driftStreak)")
-            if driftStreak >= 2 {
-                driftStreak = 0
-                raiseDoneQuestion(for: entry, reason: "drift")
-            }
-        } else {
-            driftStreak = 0
-        }
-    }
-
-    /// "Drift" = the rule engine confidently (non-nil) infers a different
-    /// role/project/customer than the running entry has. If rules produce no signal we
-    /// don't treat that as drift.
-    private func driftPresent(hints: RuleEngine.Hints, entry: TimeEntry) -> Bool {
-        if hints.isEmpty { return false }
-        if let h = hints.role, h.id != entry.role?.id { return true }
-        if let h = hints.project, h.id != entry.project?.id { return true }
-        if let h = hints.customer, h.id != entry.customer?.id { return true }
-        return false
-    }
-
-    private func fetchRecentSamples(from: Date, to: Date) -> [ActivitySample] {
-        let descriptor = FetchDescriptor<ActivitySample>(
-            predicate: #Predicate<ActivitySample> { $0.timestamp >= from && $0.timestamp < to },
-            sortBy: [SortDescriptor(\.timestamp)]
-        )
-        return (try? modelContext.fetch(descriptor)) ?? []
-    }
-
-    private func fetchRules() -> [ClassificationRule] {
-        (try? modelContext.fetch(FetchDescriptor<ClassificationRule>())) ?? []
     }
 
     // MARK: - Helpers

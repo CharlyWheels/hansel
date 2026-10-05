@@ -16,6 +16,13 @@ final class ActivityMonitor {
     private var timer: Timer?
     private var activationObserver: NSObjectProtocol?
     private var lastSample: ActivitySample?
+    /// A browser query is in flight; another sample waits for the next tick.
+    private var browserQueryInFlight = false
+    /// AppleScript runs here, never on the main thread: a hung browser or a pending
+    /// Automation consent dialog used to freeze the whole UI until the Apple Event
+    /// timed out (about two minutes). One serial queue, because `NSAppleScript` is not
+    /// safe to use concurrently.
+    private nonisolated static let scriptQueue = DispatchQueue(label: "hansel.browser-applescript", qos: .utility)
 
     private let browserBundleIDs: Set<String> = [
         "com.apple.Safari",
@@ -73,15 +80,32 @@ final class ActivityMonitor {
         let bundleId = app.bundleIdentifier ?? "unknown"
         let appName = app.localizedName ?? "Unknown"
 
-        var windowTitle: String? = axFocusedWindowTitle(pid: app.processIdentifier)
-        var url: String?
+        let axTitle = axFocusedWindowTitle(pid: app.processIdentifier)
+        let timestamp = Date()
 
-        if browserBundleIDs.contains(bundleId) {
-            let pair = browserURLAndTitle(bundleId: bundleId)
-            if pair.url?.isEmpty == false { url = pair.url }
-            if let t = pair.title, !t.isEmpty { windowTitle = t }
+        guard browserBundleIDs.contains(bundleId), let source = Self.browserScript(bundleId: bundleId) else {
+            record(timestamp: timestamp, bundleId: bundleId, appName: appName, windowTitle: axTitle, url: nil)
+            return
         }
+        guard !browserQueryInFlight else { return }
+        browserQueryInFlight = true
+        Task { @MainActor [weak self] in
+            let pair = await Self.runScript(source, bundleId: bundleId)
+            guard let self else { return }
+            self.browserQueryInFlight = false
+            let url = pair.url?.isEmpty == false ? pair.url : nil
+            let title = (pair.title?.isEmpty == false) ? pair.title : axTitle
+            self.record(timestamp: timestamp, bundleId: bundleId, appName: appName, windowTitle: title, url: url)
+        }
+    }
 
+    private func record(
+        timestamp: Date,
+        bundleId: String,
+        appName: String,
+        windowTitle: String?,
+        url: String?
+    ) {
         let flags = currentFlags(bundleId: bundleId, windowTitle: windowTitle, url: url)
 
         if let last = lastSample,
@@ -89,12 +113,12 @@ final class ActivityMonitor {
            last.windowTitle == windowTitle,
            last.url == url,
            last.flags == flags,
-           Date().timeIntervalSince(last.timestamp) < 25 {
+           timestamp.timeIntervalSince(last.timestamp) < 25 {
             return
         }
 
         let sample = ActivitySample(
-            timestamp: Date(),
+            timestamp: timestamp,
             bundleId: bundleId,
             appName: appName,
             windowTitle: windowTitle,
@@ -150,21 +174,23 @@ final class ActivityMonitor {
 
     // MARK: - AppleScript (browsers)
 
-    private func browserURLAndTitle(bundleId: String) -> (url: String?, title: String?) {
-        let script: String?
+    private static func browserScript(bundleId: String) -> String? {
+        // `with timeout` bounds each Apple Event, so a stuck browser costs seconds.
         switch bundleId {
         case "com.apple.Safari":
-            script = """
-            tell application "Safari"
-                if (count of windows) is 0 then return {"", ""}
-                try
-                    set theURL to URL of current tab of front window
-                    set theTitle to name of current tab of front window
-                    return {theURL, theTitle}
-                on error
-                    return {"", ""}
-                end try
-            end tell
+            return """
+            with timeout of 2 seconds
+                tell application "Safari"
+                    if (count of windows) is 0 then return {"", ""}
+                    try
+                        set theURL to URL of current tab of front window
+                        set theTitle to name of current tab of front window
+                        return {theURL, theTitle}
+                    on error
+                        return {"", ""}
+                    end try
+                end tell
+            end timeout
             """
         case "com.google.Chrome",
              "com.brave.Browser",
@@ -178,33 +204,45 @@ final class ActivityMonitor {
             case "com.microsoft.edgemac": appName = "Microsoft Edge"
             default: appName = "Google Chrome"
             }
-            script = """
-            tell application "\(appName)"
-                if (count of windows) is 0 then return {"", ""}
-                try
-                    set theURL to URL of active tab of front window
-                    set theTitle to title of active tab of front window
-                    return {theURL, theTitle}
-                on error
-                    return {"", ""}
-                end try
-            end tell
+            return """
+            with timeout of 2 seconds
+                tell application "\(appName)"
+                    if (count of windows) is 0 then return {"", ""}
+                    try
+                        set theURL to URL of active tab of front window
+                        set theTitle to title of active tab of front window
+                        return {theURL, theTitle}
+                    on error
+                        return {"", ""}
+                    end try
+                end tell
+            end timeout
             """
         default:
-            script = nil
+            return nil
         }
-        guard let source = script, let apple = NSAppleScript(source: source) else {
-            return (nil, nil)
+    }
+
+    private nonisolated static func runScript(_ source: String, bundleId: String) async -> (url: String?, title: String?) {
+        await withCheckedContinuation { continuation in
+            scriptQueue.async {
+                guard let apple = NSAppleScript(source: source) else {
+                    continuation.resume(returning: (nil, nil))
+                    return
+                }
+                var errorInfo: NSDictionary?
+                let result = apple.executeAndReturnError(&errorInfo)
+                if let err = errorInfo {
+                    AppLogger.activity.debug("AppleScript \(bundleId, privacy: .public) error=\(String(describing: err), privacy: .public)")
+                    continuation.resume(returning: (nil, nil))
+                    return
+                }
+                guard result.numberOfItems == 2 else {
+                    continuation.resume(returning: (nil, nil))
+                    return
+                }
+                continuation.resume(returning: (result.atIndex(1)?.stringValue, result.atIndex(2)?.stringValue))
+            }
         }
-        var errorInfo: NSDictionary?
-        let result = apple.executeAndReturnError(&errorInfo)
-        if let err = errorInfo {
-            AppLogger.activity.debug("AppleScript \(bundleId, privacy: .public) error=\(String(describing: err), privacy: .public)")
-            return (nil, nil)
-        }
-        guard result.numberOfItems == 2 else { return (nil, nil) }
-        let urlStr = result.atIndex(1)?.stringValue
-        let titleStr = result.atIndex(2)?.stringValue
-        return (urlStr, titleStr)
     }
 }
