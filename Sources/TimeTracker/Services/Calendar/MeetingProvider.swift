@@ -151,7 +151,7 @@ final class MeetingProvider {
         let attendees = event.attendees ?? []
         let isOrganizer = event.organizer?.isCurrentUser ?? false
 
-        return MeetingWindow(
+        var window = MeetingWindow(
             // Recurring events share one identifier, so the occurrence's own start is
             // what makes an instance addressable.
             eventId: "\(event.eventIdentifier ?? "")#\(Int(start.timeIntervalSince1970))",
@@ -166,6 +166,30 @@ final class MeetingProvider {
             hasConferenceURL: hasConferenceURL(event),
             calendarId: event.calendar?.calendarIdentifier ?? ""
         )
+        window.attendeeDomains = attendeeDomains(attendees)
+        return window
+    }
+
+    /// Domains of everyone invited except the user. The user's own domain is left out
+    /// too: colleagues say nothing about which customer a meeting is for.
+    private static func attendeeDomains(_ attendees: [EKParticipant]) -> [String] {
+        let mine = Set(
+            (UserDefaults.standard.string(forKey: "calendar.myEmails") ?? "")
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+                .filter { !$0.isEmpty }
+        )
+        let myDomains = Set(mine.compactMap { CustomerMatcher.domain(ofEmail: $0) })
+        var seen: [String] = []
+        for participant in attendees where !participant.isCurrentUser {
+            let email = participant.url.absoluteString
+                .replacingOccurrences(of: "mailto:", with: "")
+                .lowercased()
+            guard !mine.contains(email), let domain = CustomerMatcher.domain(ofEmail: email),
+                  !myDomains.contains(domain), !seen.contains(domain) else { continue }
+            seen.append(domain)
+        }
+        return seen
     }
 
     private static func attendance(

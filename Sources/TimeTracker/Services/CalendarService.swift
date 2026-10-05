@@ -91,7 +91,12 @@ final class CalendarService {
             allowedCalendarIds: provider.allowedCalendarIds
         ) else { return }
 
-        let (role, project, customer) = classify(title: meeting.title)
+        let (role, project, learnedCustomer) = classify(title: meeting.title)
+        // No past entry with this title: fall back to who is attending.
+        let customer = learnedCustomer ?? CustomerMatcher.customer(
+            forDomains: meeting.attendeeDomains,
+            in: (try? modelContext.fetch(FetchDescriptor<Customer>())) ?? []
+        )
         controller.startFromCalendar(
             title: meeting.title,
             startAt: startAt,

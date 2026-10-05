@@ -91,6 +91,12 @@ enum BoundaryPromptBuilder {
             line += ", \(meeting.attendeeCount) attendee(s)"
             if meeting.hasConferenceURL { line += ", has video link" }
             if meeting.showsAsFree { line += ", shows as FREE (a hold, not necessarily a meeting)" }
+            if !meeting.attendeeDomains.isEmpty {
+                line += ", attendees from \(meeting.attendeeDomains.prefix(5).joined(separator: ", "))"
+                if let customer = CustomerMatcher.customer(forDomains: meeting.attendeeDomains, in: context.customers) {
+                    line += " (customer: \(customer.name))"
+                }
+            }
             lines.append(line)
             lines.append("Microphone active in the AFTER block: \(context.meetingCorroborated ? "yes" : "no")")
         }

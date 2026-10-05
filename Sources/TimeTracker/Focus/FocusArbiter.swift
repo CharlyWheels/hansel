@@ -47,7 +47,7 @@ final class FocusArbiter {
         /// one, or when the user turned automatic meeting switches off.
         var joinedMeeting: () -> (meeting: MeetingWindow, since: Date)? = { nil }
         /// Role / project / customer names learned from past entries with this title.
-        var labelsForMeeting: (String) -> (role: String?, project: String?, customer: String?) = { _ in (nil, nil, nil) }
+        var labelsForMeeting: (MeetingWindow) -> (role: String?, project: String?, customer: String?) = { _ in (nil, nil, nil) }
     }
 
     enum Phase: Equatable {
@@ -312,7 +312,7 @@ final class FocusArbiter {
         // The meeting began when the call did, but never before the event's start
         // nor more than 30 minutes back.
         let boundary = min(now, max(meeting.start, since, now.addingTimeInterval(-1800)))
-        let labels = deps.labelsForMeeting(meeting.title)
+        let labels = deps.labelsForMeeting(meeting)
         let proposal = FocusPolicy.Proposal(
             boundaryAt: boundary,
             title: meeting.title,

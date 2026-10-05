@@ -83,6 +83,9 @@ struct MeetingWindow: Equatable, Sendable {
     let attendeeCount: Int
     let hasConferenceURL: Bool
     let calendarId: String
+    /// Email domains of the other attendees (the user's own addresses excluded), for
+    /// attributing the meeting to a customer.
+    var attendeeDomains: [String] = []
 
     init(
         eventId: String,

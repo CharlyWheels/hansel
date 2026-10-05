@@ -126,10 +126,16 @@ struct TimeTrackerApp: App {
                   let current = meetings?.currentMeeting() else { return nil }
             return (current, state.since ?? Date())
         }
-        deps.labelsForMeeting = { [weak ctx] title in
+        deps.labelsForMeeting = { [weak ctx] meeting in
             guard let ctx else { return (nil, nil, nil) }
-            let (role, project, customer) = CalendarService.classify(title: title, context: ctx)
-            return (role?.name, project?.name, customer?.name)
+            let (role, project, customer) = CalendarService.classify(title: meeting.title, context: ctx)
+            let byAttendees = customer == nil
+                ? CustomerMatcher.customer(
+                    forDomains: meeting.attendeeDomains,
+                    in: (try? ctx.fetch(FetchDescriptor<Customer>())) ?? []
+                )
+                : nil
+            return (role?.name, project?.name, (customer ?? byAttendees)?.name)
         }
 
         let focusArbiter = FocusArbiter(dependencies: deps, budget: LLMBudget.loadPersisted())
