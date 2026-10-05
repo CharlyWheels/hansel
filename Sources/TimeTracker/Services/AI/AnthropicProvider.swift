@@ -26,7 +26,7 @@ struct AnthropicProvider: AIProvider {
         }
     }
 
-    func requestBody(system: String, user: String, maxTokens: Int) -> [String: Any] {
+    func requestBody(system: String, user: String, maxTokens: Int, effort: AIEffort = .low) -> [String: Any] {
         let traits = ModelTraits(model: model)
         var body: [String: Any] = [
             "model": model,
@@ -34,16 +34,16 @@ struct AnthropicProvider: AIProvider {
             "system": system,
             "messages": [["role": "user", "content": user]]
         ]
-        // These are short classification calls: low effort keeps them fast and cheap,
-        // and thinking (always on for the newest models) stays well inside max_tokens.
-        if traits.supportsEffort { body["output_config"] = ["effort": "low"] }
+        // Short classification calls: low effort for routine drafts, a step up for the
+        // task-switch decision. Thinking stays well inside max_tokens either way.
+        if traits.supportsEffort { body["output_config"] = ["effort": effort.rawValue] }
         // A safety classifier declining an ordinary work log should not lose the
         // answer: let the API retry on the recommended model for that category.
         if traits.supportsDefaultFallback { body["fallbacks"] = "default" }
         return body
     }
 
-    func complete(system: String, user: String, maxTokens: Int) async throws -> String {
+    func complete(system: String, user: String, maxTokens: Int, effort: AIEffort) async throws -> String {
         var req = URLRequest(url: baseURL)
         req.httpMethod = "POST"
         req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
@@ -53,7 +53,7 @@ struct AnthropicProvider: AIProvider {
             req.setValue("server-side-fallback-2026-07-01", forHTTPHeaderField: "anthropic-beta")
         }
         req.httpBody = try JSONSerialization.data(
-            withJSONObject: requestBody(system: system, user: user, maxTokens: maxTokens)
+            withJSONObject: requestBody(system: system, user: user, maxTokens: maxTokens, effort: effort)
         )
 
         let t0 = Date()

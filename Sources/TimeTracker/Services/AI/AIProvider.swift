@@ -42,7 +42,14 @@ struct EntryDraft {
 protocol AIProvider {
     var id: UUID { get }
     var displayName: String { get }
-    func complete(system: String, user: String, maxTokens: Int) async throws -> String
+    /// `effort` is a hint; providers without an equivalent ignore it.
+    func complete(system: String, user: String, maxTokens: Int, effort: AIEffort) async throws -> String
+}
+
+/// How hard the model should think. Drafts are routine; deciding whether the task
+/// changed, and labelling the new one, is the call that most needs to be right.
+enum AIEffort: String, Sendable {
+    case low, medium, high
 }
 
 extension AIProvider {
@@ -54,7 +61,7 @@ extension AIProvider {
     /// Classify a window of activity. The original question, unchanged.
     func draft(_ context: SuggestionContext) async throws -> EntryDraft {
         let (system, user) = PromptBuilder.build(context: context)
-        let text = try await inspectedComplete(kind: .draft, system: system, user: user)
+        let text = try await inspectedComplete(kind: .draft, system: system, user: user, effort: .low)
         return try DraftParser.parse(text, context: context, providerLabel: displayName)
     }
 
@@ -62,7 +69,7 @@ extension AIProvider {
     /// and if so exactly when?
     func decideBoundary(_ context: BoundaryContext) async throws -> BoundaryVerdict {
         let (system, user) = BoundaryPromptBuilder.build(context: context)
-        let text = try await inspectedComplete(kind: .boundary, system: system, user: user)
+        let text = try await inspectedComplete(kind: .boundary, system: system, user: user, effort: .medium)
         return try BoundaryParser.parse(text, context: context, providerLabel: displayName)
     }
 }

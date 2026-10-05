@@ -79,4 +79,10 @@ final class PromptPrivacyTests: XCTestCase {
         XCTAssertNil(haiku["output_config"])
         XCTAssertNil(haiku["fallbacks"])
     }
+
+    func test_taskSwitchQuestionsUseMoreEffortThanDrafts() {
+        let provider = AnthropicProvider(id: UUID(), displayName: "c", model: "claude-opus-5-5", apiKey: "")
+        let boundary = provider.requestBody(system: "s", user: "u", maxTokens: 4096, effort: .medium)
+        XCTAssertEqual((boundary["output_config"] as? [String: String])?["effort"], "medium")
+    }
 }

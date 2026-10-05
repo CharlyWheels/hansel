@@ -11,7 +11,7 @@ struct OpenAICompatibleProvider: AIProvider {
     let apiKey: String
     var session: URLSession = .shared
 
-    func complete(system: String, user: String, maxTokens: Int) async throws -> String {
+    func complete(system: String, user: String, maxTokens: Int, effort: AIEffort) async throws -> String {
         let url = baseURL.appendingPathComponent("chat/completions")
         var req = URLRequest(url: url)
         req.httpMethod = "POST"

@@ -35,11 +35,17 @@ final class PromptInspector {
 
 extension AIProvider {
     /// Runs one model call and records the exchange for the Debug pane.
-    func inspectedComplete(kind: PromptInspector.Kind, system: String, user: String) async throws -> String {
+    func inspectedComplete(
+        kind: PromptInspector.Kind,
+        system: String,
+        user: String,
+        effort: AIEffort = .low
+    ) async throws -> String {
         let at = Date()
         let provider = displayName
         do {
-            let text = try await complete(system: system, user: user, maxTokens: Self.answerTokenCeiling)
+            let text = try await complete(system: system, user: user,
+                                          maxTokens: Self.answerTokenCeiling, effort: effort)
             await MainActor.run {
                 PromptInspector.shared.record(.init(kind: kind, at: at, provider: provider,
                                                     system: system, user: user, response: text))

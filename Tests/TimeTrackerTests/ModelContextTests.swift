@@ -84,7 +84,7 @@ final class ModelContextTests: XCTestCase {
         struct FakeProvider: AIProvider {
             let id = UUID()
             let displayName = "fake"
-            func complete(system: String, user: String, maxTokens: Int) async throws -> String { "{\"ok\":true}" }
+            func complete(system: String, user: String, maxTokens: Int, effort: AIEffort) async throws -> String { "{\"ok\":true}" }
         }
         let text = try await FakeProvider().inspectedComplete(kind: .draft, system: "sys", user: "the user prompt")
         XCTAssertEqual(text, "{\"ok\":true}")
