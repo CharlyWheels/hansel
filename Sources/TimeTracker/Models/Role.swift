@@ -11,6 +11,11 @@ final class Role {
     @Relationship(deleteRule: .cascade, inverse: \ClassificationRule.targetRole)
     var rules: [ClassificationRule] = []
 
+    // Inverses with `.nullify`, so deleting this leaves past entries in place with
+    // the link cleared, instead of dangling references to a deleted model.
+    @Relationship(deleteRule: .nullify, inverse: \TimeEntry.role)
+    var entries: [TimeEntry] = []
+
     init(
         id: UUID = UUID(),
         name: String,

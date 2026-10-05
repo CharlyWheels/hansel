@@ -95,7 +95,8 @@ struct AnalyticsView: View {
         panel.nameFieldStringValue = "timetracker-\(df.string(from: Date())).xlsx"
         guard panel.runModal() == .OK, let dest = panel.url else { return }
 
-        let frozenReport = AnalyticsAggregator.report(entries: entries, period: period)
+        // Snapshot on the main actor: only plain values may cross into the detached task.
+        let frozenReport = XLSXWriter.Snapshot(report: AnalyticsAggregator.report(entries: entries, period: period))
         exportInProgress = true
         Task.detached {
             do {

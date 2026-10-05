@@ -8,6 +8,7 @@ struct RolesView: View {
 
     @State private var newName: String = ""
     @State private var newBillable: Bool = true
+    @State private var pendingDelete: IndexSet?
 
     var body: some View {
         NavigationStack {
@@ -20,9 +21,12 @@ struct RolesView: View {
                             rowSummary(role)
                         }
                     }
-                    .onDelete(perform: delete)
+                    .onDelete { pendingDelete = $0 }
                 }
                 .listStyle(.inset)
+                .confirmingDelete($pendingDelete, noun: "role",
+                                  affectedEntries: { $0.reduce(0) { sum, i in sum + roles[i].entries.count } },
+                                  perform: delete)
             }
             .navigationTitle("Roles")
             .navigationDestination(for: Role.self) { role in
@@ -86,9 +90,8 @@ struct RolesView: View {
 
     private func delete(offsets: IndexSet) {
         for i in offsets { modelContext.delete(roles[i]) }
-        try? modelContext.save()
-        let all = (try? modelContext.fetch(FetchDescriptor<TimeEntry>())) ?? []
-        for entry in all { entry.refreshBillableCache() }
+        // Entries keep their billable flag: it records what the time was when it was
+        // tracked, and deleting a catalog row must not rewrite past invoices.
         try? modelContext.save()
     }
 }

@@ -82,14 +82,13 @@ struct EntryListView: View {
         df.dateFormat = "yyyy-MM-dd"
         panel.nameFieldStringValue = "timetracker-\(df.string(from: Date())).csv"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        let iso = ISO8601DateFormatter()
         var rows: [String] = ["Title,Start,End,Duration (min),Role,Project,Customer,Billable,Source,Notes"]
         for e in entries {
             let dur = Int((e.duration ?? 0) / 60)
             let fields = [
                 csvEscape(e.title),
-                iso.string(from: e.startAt),
-                e.endAt.map { iso.string(from: $0) } ?? "",
+                ExportFormatting.localTimestamp(e.startAt),
+                e.endAt.map { ExportFormatting.localTimestamp($0) } ?? "",
                 String(dur),
                 csvEscape(e.role?.name ?? ""),
                 csvEscape(e.project?.name ?? ""),
@@ -105,10 +104,7 @@ struct EntryListView: View {
     }
 
     private func csvEscape(_ s: String) -> String {
-        if s.contains(",") || s.contains("\"") || s.contains("\n") {
-            return "\"\(s.replacingOccurrences(of: "\"", with: "\"\""))\""
-        }
-        return s
+        ExportFormatting.csvField(s)
     }
 
     // MARK: - Row
@@ -166,8 +162,7 @@ struct EntryListView: View {
             isHumanConfirmed: true,
             source: .manual
         )
-        modelContext.insert(entry)
-        try? modelContext.save()
+        // Not inserted yet: the editor inserts it on Save, so Cancel leaves nothing behind.
         editingEntry = entry
     }
 }

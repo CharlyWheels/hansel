@@ -21,7 +21,64 @@ import Foundation
 ///   …By Project, By Role, Entries…
 enum XLSXWriter {
 
-    static func write(report: AnalyticsReport, to destination: URL) throws {
+    /// A plain-value copy of everything the sheet needs.
+    ///
+    /// `AnalyticsReport` holds live `TimeEntry` models from the main context, and the
+    /// export runs on a background task; reading models there is a data race. The
+    /// snapshot is built on the main actor and only values cross over.
+    struct Snapshot: Sendable {
+        struct Row: Sendable {
+            let title: String
+            let start: Date
+            let end: Date?
+            /// Seconds inside the report period, so rows add up to the totals.
+            let inPeriodSeconds: TimeInterval
+            let totalSeconds: TimeInterval
+            let role: String
+            let project: String
+            let customer: String
+            let billable: Bool
+            let source: String
+            let notes: String
+        }
+
+        let periodLabel: String
+        let totalSeconds: TimeInterval
+        let billableSeconds: TimeInterval
+        let entryCount: Int
+        let byCustomer: [BreakdownRow]
+        let byProject: [BreakdownRow]
+        let byRole: [BreakdownRow]
+        let rows: [Row]
+
+        @MainActor
+        init(report: AnalyticsReport) {
+            periodLabel = XLSXWriter.periodLabel(report: report)
+            totalSeconds = report.totalSeconds
+            billableSeconds = report.billableSeconds
+            entryCount = report.entryCount
+            byCustomer = report.byCustomer
+            byProject = report.byProject
+            byRole = report.byRole
+            rows = report.entries.map { e in
+                Row(
+                    title: e.title,
+                    start: e.startAt,
+                    end: e.endAt,
+                    inPeriodSeconds: AnalyticsAggregator.overlap(entry: e, interval: report.interval),
+                    totalSeconds: e.duration ?? 0,
+                    role: e.role?.name ?? "",
+                    project: e.project?.name ?? "",
+                    customer: e.customer?.name ?? "",
+                    billable: e.billableCached,
+                    source: e.source.rawValue,
+                    notes: e.notes ?? ""
+                )
+            }
+        }
+    }
+
+    static func write(report: Snapshot, to destination: URL) throws {
         let fm = FileManager.default
         let tempDir = fm.temporaryDirectory
             .appending(path: "TimeTracker-xlsx-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -61,11 +118,11 @@ enum XLSXWriter {
 
     // MARK: - Sheet construction
 
-    private static func buildSheet(report: AnalyticsReport) -> String {
+    static func buildSheet(report: Snapshot) -> String {
         var b = SheetBuilder()
 
         b.row([.boldString("Time tracking report")])
-        b.row([.string(periodLabel(report: report))])
+        b.row([.string(report.periodLabel)])
         b.row([])
 
         b.row([.boldString("Summary")])
@@ -78,7 +135,7 @@ enum XLSXWriter {
         appendBreakdown(&b, title: "By Project", rows: report.byProject)
         appendBreakdown(&b, title: "By Role", rows: report.byRole)
 
-        appendEntries(&b, entries: report.entries)
+        appendEntries(&b, rows: report.rows)
 
         return b.finish()
     }
@@ -104,27 +161,27 @@ enum XLSXWriter {
         b.row([])
     }
 
-    private static func appendEntries(_ b: inout SheetBuilder, entries: [TimeEntry]) {
+    private static func appendEntries(_ b: inout SheetBuilder, rows: [Snapshot.Row]) {
         b.row([.boldString("Entries")])
         b.row([
             .boldString("Title"), .boldString("Start"), .boldString("End"),
-            .boldString("Duration (h)"), .boldString("Role"), .boldString("Project"),
-            .boldString("Customer"), .boldString("Billable"), .boldString("Source"),
-            .boldString("Notes")
+            .boldString("In period (h)"), .boldString("Total (h)"), .boldString("Role"),
+            .boldString("Project"), .boldString("Customer"), .boldString("Billable"),
+            .boldString("Source"), .boldString("Notes")
         ])
-        let iso = ISO8601DateFormatter()
-        for e in entries {
+        for e in rows {
             b.row([
                 .string(e.title),
-                .string(iso.string(from: e.startAt)),
-                .string(e.endAt.map { iso.string(from: $0) } ?? ""),
-                .number(hours(e.duration ?? 0)),
-                .string(e.role?.name ?? ""),
-                .string(e.project?.name ?? ""),
-                .string(e.customer?.name ?? ""),
-                .string(e.billableCached ? "yes" : "no"),
-                .string(e.source.rawValue),
-                .string(e.notes ?? "")
+                .date(e.start),
+                e.end.map { .date($0) } ?? .string(""),
+                .number(hours(e.inPeriodSeconds)),
+                .number(hours(e.totalSeconds)),
+                .string(e.role),
+                .string(e.project),
+                .string(e.customer),
+                .string(e.billable ? "yes" : "no"),
+                .string(e.source),
+                .string(e.notes)
             ])
         }
     }
@@ -135,7 +192,7 @@ enum XLSXWriter {
         (seconds / 3600 * 100).rounded() / 100   // 2 decimals
     }
 
-    private static func periodLabel(report: AnalyticsReport) -> String {
+    fileprivate static func periodLabel(report: AnalyticsReport) -> String {
         let df = DateFormatter()
         df.dateStyle = .medium
         df.timeStyle = .none
@@ -214,9 +271,10 @@ enum XLSXWriter {
       <fills count="1"><fill><patternFill patternType="none"/></fill></fills>
       <borders count="1"><border/></borders>
       <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-      <cellXfs count="2">
+      <cellXfs count="3">
         <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
         <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+        <xf numFmtId="22" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
       </cellXfs>
     </styleSheet>
     """
@@ -233,6 +291,8 @@ private struct SheetBuilder {
         case string(String)
         case boldString(String)
         case number(Double)
+        /// A real date cell (local time, "m/d/yy h:mm"), so Excel can sort and sum it.
+        case date(Date)
     }
 
     mutating func row(_ cells: [Cell]) {
@@ -267,6 +327,8 @@ private struct SheetBuilder {
             return "<c r=\"\(ref)\" t=\"inlineStr\" s=\"1\"><is><t xml:space=\"preserve\">\(xmlEscape(s))</t></is></c>"
         case .number(let n):
             return "<c r=\"\(ref)\"><v>\(n)</v></c>"
+        case .date(let d):
+            return "<c r=\"\(ref)\" s=\"2\"><v>\(ExportFormatting.excelSerial(d))</v></c>"
         }
     }
 
@@ -283,10 +345,6 @@ private struct SheetBuilder {
     }
 
     private func xmlEscape(_ s: String) -> String {
-        s.replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
-            .replacingOccurrences(of: "\"", with: "&quot;")
-            .replacingOccurrences(of: "'", with: "&apos;")
+        ExportFormatting.xmlText(s)
     }
 }

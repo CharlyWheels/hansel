@@ -116,7 +116,7 @@ enum AnalyticsAggregator {
     // MARK: - Internals
 
     /// Seconds of the entry that fall within the interval.
-    private static func overlap(entry: TimeEntry, interval: DateInterval) -> TimeInterval {
+    static func overlap(entry: TimeEntry, interval: DateInterval) -> TimeInterval {
         guard let end = entry.endAt else { return 0 }
         let start = max(entry.startAt, interval.start)
         let stop = min(end, interval.end)

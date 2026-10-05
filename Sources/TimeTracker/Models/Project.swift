@@ -16,6 +16,14 @@ final class Project {
     @Relationship(deleteRule: .cascade, inverse: \ClassificationRule.targetProject)
     var rules: [ClassificationRule] = []
 
+    // Inverses with `.nullify`, so deleting this leaves past entries in place with
+    // the link cleared, instead of dangling references to a deleted model.
+    @Relationship(deleteRule: .nullify, inverse: \TimeEntry.project)
+    var entries: [TimeEntry] = []
+
+    @Relationship(deleteRule: .nullify, inverse: \Todo.relatedProject)
+    var todos: [Todo] = []
+
     init(
         id: UUID = UUID(),
         name: String,

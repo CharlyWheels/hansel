@@ -30,6 +30,7 @@ struct TodosView: View {
 
     @State private var newTitle: String = ""
     @State private var showCompleted: Bool = false
+    @State private var pendingDelete: IndexSet?
 
     private var rootTodos: [Todo] {
         allTodos.filter { $0.parent == nil && (showCompleted || !$0.isCompleted) }
@@ -49,9 +50,12 @@ struct TodosView: View {
                             onToggle: toggleCompleted
                         )
                     }
-                    .onDelete(perform: deleteRoots)
+                    .onDelete { pendingDelete = $0 }
                 }
                 .listStyle(.inset)
+                .confirmingDelete($pendingDelete, noun: "todo and its subtasks",
+                                  affectedEntries: { $0.reduce(0) { sum, i in sum + rootTodos[i].linkedEntries.count } },
+                                  perform: deleteRoots)
             }
             .navigationTitle("Todos")
             .toolbar {

@@ -10,6 +10,7 @@ struct ProjectsView: View {
     @State private var newName: String = ""
     @State private var newCustomer: Customer?
     @State private var newBillable: Bool = true
+    @State private var pendingDelete: IndexSet?
 
     var body: some View {
         NavigationStack {
@@ -22,9 +23,12 @@ struct ProjectsView: View {
                             rowSummary(project)
                         }
                     }
-                    .onDelete(perform: delete)
+                    .onDelete { pendingDelete = $0 }
                 }
                 .listStyle(.inset)
+                .confirmingDelete($pendingDelete, noun: "project",
+                                  affectedEntries: { $0.reduce(0) { sum, i in sum + projects[i].entries.count } },
+                                  perform: delete)
             }
             .navigationTitle("Projects")
             .navigationDestination(for: Project.self) { project in
@@ -103,9 +107,8 @@ struct ProjectsView: View {
 
     private func delete(offsets: IndexSet) {
         for i in offsets { modelContext.delete(projects[i]) }
-        try? modelContext.save()
-        let all = (try? modelContext.fetch(FetchDescriptor<TimeEntry>())) ?? []
-        for entry in all { entry.refreshBillableCache() }
+        // Entries keep their billable flag: it records what the time was when it was
+        // tracked, and deleting a catalog row must not rewrite past invoices.
         try? modelContext.save()
     }
 }
