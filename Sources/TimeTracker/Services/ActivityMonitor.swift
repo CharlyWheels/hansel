@@ -129,7 +129,7 @@ final class ActivityMonitor {
         lastSample = sample
         do {
             try modelContext.save()
-            AppLogger.activity.debug("sample bundle=\(bundleId, privacy: .public) title=\(windowTitle ?? "-", privacy: .public)")
+            AppLogger.activity.debug("sample bundle=\(bundleId, privacy: .public) title=\(windowTitle ?? "-", privacy: .private)")
         } catch {
             AppLogger.activity.error("save failed: \(error.localizedDescription, privacy: .public)")
         }

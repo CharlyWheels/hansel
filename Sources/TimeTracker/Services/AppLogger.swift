@@ -4,7 +4,8 @@ import OSLog
 /// Central logging facade. Uses `os.Logger` for Console.app visibility and a
 /// rotating JSONL file sink at `~/Library/Logs/TimeTracker/` for the Debug pane.
 enum AppLogger {
-    static let subsystem = "com.carlosrueda.timetracker"
+    /// Same as the bundle identifier, so Console filtering matches the app.
+    static let subsystem = "com.carlosrueda.hansel"
 
     static let timer = Logger(subsystem: subsystem, category: "timer")
     static let activity = Logger(subsystem: subsystem, category: "activity")

@@ -31,6 +31,19 @@ model a new label. Applied switches stay undoable for 15 minutes.
 Every candidate, including the suppressed ones, is written to a `FocusDecision` log,
 which is both the debugging surface and the corpus that tunes the thresholds.
 
+## The timer never stops by itself
+
+Only you stop the timer. Locking the screen, walking away or closing the lid never ends
+an entry. When you come back after being away while a timer ran, Hansel asks whether to
+**keep** that time, **remove** it (the entry is split around the gap), or **end** the entry
+when you left. Time in a detected call counts as work and is not asked about. A periodic
+check-in (every 90 min by default) catches a timer left running by mistake.
+
+Calendar events start a timer only when nothing is running, the event is in progress,
+began less than 30 minutes ago, and is one you are attending (not declined, not an
+unanswered invite, not a "free" hold). The entry starts at the event's start, but never
+earlier than the end of your last entry.
+
 ## Build
 
 ```bash
@@ -42,13 +55,30 @@ swift test      # unit tests
 ```
 
 The Makefile compiles the SwiftPM executable in release mode and wraps it in a signed
-`.app` bundle. Ad-hoc code signing is used so permission dialogs (Calendar,
-Accessibility, Automation) are attributed to this binary.
+`.app` bundle, so permission dialogs (Calendar, Accessibility, Automation) are
+attributed to this binary.
 
-> Ad-hoc signing gives the binary a new hash on every build, and macOS tracks
-> Accessibility grants by hash — so after each rebuild you must toggle Hansel off and on
-> in `System Settings → Privacy & Security → Accessibility`. Notification permission is
-> keyed by bundle id instead and survives rebuilds.
+### Signing (keep permissions across rebuilds)
+
+By default the bundle is signed ad-hoc. That gives every build a new code hash, and
+macOS keys Accessibility, Automation and Keychain access on it — so after each rebuild
+you must toggle Hansel off and on in `System Settings → Privacy & Security →
+Accessibility`.
+
+To avoid that, create a self-signed code-signing certificate once and the Makefile will
+use it automatically:
+
+1. Open **Keychain Access → Certificate Assistant → Create a Certificate…**
+2. Name: `Hansel Dev`, Identity Type: *Self-Signed Root*, Certificate Type: *Code Signing*.
+3. Run `make app`. The output says `signed with: Hansel Dev`.
+
+Any other identity works too: `make app SIGN_IDENTITY="Apple Development: …"`.
+
+### Why no Docker
+
+This is a native macOS menu-bar app. It needs the window server, Accessibility,
+EventKit, CoreAudio and AppleScript, none of which exist inside a Linux container, so it
+is deliberately not containerised. `swift test` runs the full test suite locally.
 
 ## First-run permissions
 
@@ -64,9 +94,12 @@ status. Microphone and camera detection need no permission at all.
 - **Calendar** — choose which calendars may start tracking, and list your own email
   addresses so Hansel can find your response to an invitation (macOS does not always
   report it on Google accounts).
-- **General** — idle and auto-start thresholds, and how long an unanswered switch
-  question waits before expiring.
-- **AI** — provider, model, and which context fields are sent.
+- **General** — idle and auto-start thresholds, when to ask about away time, the
+  periodic check-in, and how long an unanswered switch question waits before expiring.
+- **AI** — provider, model, and which context fields are sent. The toggles apply to
+  every prompt, including task-switch questions. The default Claude preset is
+  `claude-opus-5-5` at low effort; model calls are capped per hour and per day, and the
+  cap survives relaunches.
 
 ## Data retention
 
@@ -76,4 +109,5 @@ entries, todos and the catalog are never pruned.
 ## Logs
 
 `~/Library/Logs/TimeTracker/timetracker-YYYY-MM-DD.log` (JSONL, 14-day rotation). Open
-from Settings → Debug.
+from Settings → Debug. Window and entry titles are not written to this file; in
+Console.app they are logged as private.

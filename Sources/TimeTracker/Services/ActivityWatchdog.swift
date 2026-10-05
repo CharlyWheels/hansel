@@ -95,8 +95,8 @@ final class ActivityWatchdog {
                 customer: draft.customer,
                 todo: draft.todo
             )
-            AppLogger.timer.info("Watchdog auto-started timer: \(draft.title, privacy: .public)")
-            AppLogger.log("timer", level: .info, "watchdog_autostart title=\(draft.title)")
+            AppLogger.timer.info("Watchdog auto-started timer: \(draft.title, privacy: .private)")
+            AppLogger.log("timer", level: .info, "watchdog_autostart")
         } catch {
             AppLogger.ai.error("Watchdog draft failed: \(error.localizedDescription, privacy: .public)")
             AppLogger.log("ai", level: .error, "watchdog_draft_failed: \(error.localizedDescription)")

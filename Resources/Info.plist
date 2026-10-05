@@ -33,6 +33,6 @@
     <key>NSAccessibilityUsageDescription</key>
     <string>Hansel reads the focused window title to classify what you are working on.</string>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Hansel asks Safari, Chrome, and Arc for the URL of the active tab to classify your work.</string>
+    <string>Hansel asks Safari, Chrome, Arc, Brave and Edge for the URL of the active tab to classify your work.</string>
 </dict>
 </plist>

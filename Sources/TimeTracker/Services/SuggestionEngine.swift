@@ -29,7 +29,7 @@ final class SuggestionEngine {
         AppLogger.ai.info("Drafting via \(provider.displayName, privacy: .public) window=\(Int(windowEnd.timeIntervalSince(windowStart) / 60), privacy: .public)min samples=\(ctx.samples.count, privacy: .public)")
         AppLogger.log("ai", level: .info, "draft_begin provider=\(provider.displayName) samples=\(ctx.samples.count)")
         let draft = try await provider.draft(ctx)
-        AppLogger.log("ai", level: .info, "draft_ok title=\(draft.title)")
+        AppLogger.log("ai", level: .info, "draft_ok")
         return draft
     }
 

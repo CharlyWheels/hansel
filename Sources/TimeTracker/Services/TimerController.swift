@@ -143,8 +143,8 @@ final class TimerController {
         runningEntry = entry
         state = .running
         if source == .manual { lastManualEditAt = Date() }
-        AppLogger.timer.info("Timer started source=\(source.rawValue, privacy: .public) title=\(title, privacy: .public)")
-        AppLogger.log("timer", level: .info, "start source=\(source.rawValue) title=\(title)")
+        AppLogger.timer.info("Timer started source=\(source.rawValue, privacy: .public) title=\(title, privacy: .private)")
+        AppLogger.log("timer", level: .info, "start source=\(source.rawValue)")
     }
 
     // MARK: - Stop / cancel
@@ -268,7 +268,7 @@ final class TimerController {
                 source: source, todo: plan.todo
             )
             let id = runningEntry?.id ?? UUID()
-            AppLogger.log("timer", level: .info, "switch_started id=\(id) title=\(plan.title)")
+            AppLogger.log("timer", level: .info, "switch_started id=\(id)")
             return .started(id: id)
 
         case .correctInPlace:
@@ -277,8 +277,8 @@ final class TimerController {
             entry.source = source == .aiSwitch ? .aiAutoStart : source
             entry.refreshBillableCache()
             try? modelContext.save()
-            AppLogger.timer.info("Corrected running entry in place: \(plan.title, privacy: .public)")
-            AppLogger.log("timer", level: .info, "switch_corrected id=\(entry.id) title=\(plan.title)")
+            AppLogger.timer.info("Corrected running entry in place: \(plan.title, privacy: .private)")
+            AppLogger.log("timer", level: .info, "switch_corrected id=\(entry.id)")
             return .correctedInPlace(id: entry.id)
 
         case let .openNew(closeAt, startAt):
@@ -330,7 +330,7 @@ final class TimerController {
 
             runningEntry = next
             state = .running
-            AppLogger.timer.info("Switched to \(plan.title, privacy: .public) at boundary")
+            AppLogger.timer.info("Switched to \(plan.title, privacy: .private) at boundary")
             AppLogger.log(
                 "timer", level: .info,
                 "switch id=\(next.id) from=\(previous.id) at=\(closeAt.timeIntervalSince1970) source=\(source.rawValue)"

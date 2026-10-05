@@ -211,7 +211,7 @@ final class EntryCompletionService {
             message: "Still working on '\(title)'?",
             entryId: entry.id
         )
-        AppLogger.log("timer", level: .info, "completion_prompt reason=\(reason) title=\(title)")
+        AppLogger.log("timer", level: .info, "completion_prompt reason=\(reason)")
     }
 
     private func isCooldownPassed(for entry: TimeEntry) -> Bool {

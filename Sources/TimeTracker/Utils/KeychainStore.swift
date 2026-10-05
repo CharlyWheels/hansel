@@ -3,7 +3,10 @@ import Security
 
 /// Tiny Keychain wrapper for storing AI provider API tokens under the app's service.
 enum KeychainStore {
-    private static let service = "com.carlosrueda.timetracker"
+    /// Matches the bundle identifier.
+    private static let service = "com.carlosrueda.hansel"
+    /// Where keys were stored before the app was renamed. Read once and moved.
+    private static let legacyService = "com.carlosrueda.timetracker"
 
     /// Stores `value`, updating in place when the item exists.
     ///
@@ -39,9 +42,18 @@ enum KeychainStore {
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
         return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
+            || get(key) != nil
     }
 
     static func get(_ key: String) -> String? {
+        if let value = read(key, service: service) { return value }
+        // Move a key saved under the old service name, so it is not lost.
+        guard let legacy = read(key, service: legacyService) else { return nil }
+        if set(legacy, for: key) { deleteItem(key, service: legacyService) }
+        return legacy
+    }
+
+    private static func read(_ key: String, service: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -61,6 +73,11 @@ enum KeychainStore {
     }
 
     static func delete(_ key: String) {
+        deleteItem(key, service: service)
+        deleteItem(key, service: legacyService)
+    }
+
+    private static func deleteItem(_ key: String, service: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

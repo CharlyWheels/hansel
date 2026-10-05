@@ -10,6 +10,12 @@ ICON_SRC := Resources/AppIcon.icns
 ICON_DST := $(CONTENTS)/Resources/AppIcon.icns
 ENTITLEMENTS := Resources/TimeTracker.entitlements
 
+# Signing identity. Ad-hoc ("-") gives every build a new code hash, and macOS keys
+# Accessibility, Automation and Keychain access on it, so each rebuild loses those
+# grants. A stable self-signed certificate named "Hansel Dev" keeps them; see README.
+# Override with `make app SIGN_IDENTITY="Apple Development: ..."`.
+SIGN_IDENTITY ?= $(shell security find-identity -v -p codesigning 2>/dev/null | grep -q '"Hansel Dev"' && echo "Hansel Dev" || echo "-")
+
 INSTALL_DIR := /Applications
 INSTALLED_APP := $(INSTALL_DIR)/$(APP_NAME).app
 OLD_INSTALLED_APP := $(INSTALL_DIR)/TimeTracker.app
@@ -29,8 +35,8 @@ app: build
 	cp $(BINARY_SRC) $(BINARY_DST)
 	cp $(PLIST_SRC) $(PLIST_DST)
 	@if [ -f $(ICON_SRC) ]; then cp $(ICON_SRC) $(ICON_DST); else echo "⚠  $(ICON_SRC) missing — run 'make icon'"; fi
-	codesign --force --deep --sign - --entitlements $(ENTITLEMENTS) --options runtime $(APP_BUNDLE)
-	@echo "Built $(APP_BUNDLE)"
+	codesign --force --sign "$(SIGN_IDENTITY)" --entitlements $(ENTITLEMENTS) --options runtime $(APP_BUNDLE)
+	@echo "Built $(APP_BUNDLE) (signed with: $(SIGN_IDENTITY))"
 
 run: app
 	open $(APP_BUNDLE)
@@ -50,8 +56,8 @@ install: app
 	@echo ""
 	@echo "Next steps:"
 	@echo "  1. Launch from Spotlight (Cmd+Space \"Hansel\") or Launchpad"
-	@echo "  2. Re-grant Calendar / Accessibility / Automation permissions"
-	@echo "     (the new install has a different code-sign hash than the dev build)"
+	@echo "  2. Re-grant Calendar / Accessibility / Automation permissions if asked"
+	@echo "     (only needed every build when signing ad-hoc; see README)"
 	@echo "  3. Settings \xe2\x86\x92 General \xe2\x86\x92 toggle \"Launch at login\" on"
 
 uninstall:
