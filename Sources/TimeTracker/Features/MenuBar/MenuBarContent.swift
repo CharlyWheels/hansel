@@ -39,6 +39,7 @@ struct MenuBarContent: View {
         VStack(alignment: .leading, spacing: 10) {
             HanselBrandRow(iconSize: 20)
             Divider()
+            PermissionBanner()
             if let pending = prompts.pending {
                 switchBanner(pending)
                 Divider()

@@ -64,15 +64,9 @@ struct ContentView: View {
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
         } detail: {
-            switch selection {
-            case .dashboard: DashboardView()
-            case .entries:   EntryListView()
-            case .timeline:  DayTimelineView()
-            case .todos:     TodosView()
-            case .analytics: AnalyticsView()
-            case .projects:  ProjectsView()
-            case .customers: CustomersView()
-            case .roles:     RolesView()
+            VStack(spacing: 0) {
+                PermissionBanner().padding([.horizontal, .top], 12)
+                detailView
             }
         }
         // "It's something else…" splits the entry and then lands here to be labelled.
@@ -82,6 +76,20 @@ struct ContentView: View {
         )) { entry in
             EntryEditorView(entry: entry)
                 .frame(minWidth: 480, minHeight: 520)
+        }
+    }
+
+    @ViewBuilder
+    private var detailView: some View {
+        switch selection {
+        case .dashboard: DashboardView()
+        case .entries:   EntryListView()
+        case .timeline:  DayTimelineView()
+        case .todos:     TodosView()
+        case .analytics: AnalyticsView()
+        case .projects:  ProjectsView()
+        case .customers: CustomersView()
+        case .roles:     RolesView()
         }
     }
 }

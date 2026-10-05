@@ -32,6 +32,22 @@ final class ActivityMonitor {
         "company.thebrowser.Browser" // Arc
     ]
 
+    /// System surfaces that take focus without being work: a notification banner, the
+    /// login window, the screen saver, and Hansel itself. Recording them made a burst
+    /// of notifications look like a string of app switches.
+    static let ignoredBundleIDs: Set<String> = [
+        "com.apple.UserNotificationCenter",
+        "com.apple.notificationcenterui",
+        "com.apple.loginwindow",
+        "com.apple.ScreenSaver.Engine",
+        "com.carlosrueda.hansel",
+    ]
+
+    static func isIgnored(_ bundleId: String) -> Bool {
+        ignoredBundleIDs.contains(bundleId)
+            || bundleId == Bundle.main.bundleIdentifier
+    }
+
     init(modelContext: ModelContext, idleMonitor: IdleMonitor? = nil) {
         self.modelContext = modelContext
         self.idleMonitor = idleMonitor
@@ -79,6 +95,8 @@ final class ActivityMonitor {
         guard let app = NSWorkspace.shared.frontmostApplication else { return }
         let bundleId = app.bundleIdentifier ?? "unknown"
         let appName = app.localizedName ?? "Unknown"
+        // Not work: the previous sample keeps standing for this span.
+        if Self.isIgnored(bundleId) { return }
 
         let axTitle = axFocusedWindowTitle(pid: app.processIdentifier)
         let timestamp = Date()
@@ -160,8 +178,16 @@ final class ActivityMonitor {
 
     // MARK: - AX window title
 
+    private var loggedMissingAX = false
+
     private func axFocusedWindowTitle(pid: pid_t) -> String? {
-        guard AXIsProcessTrusted() else { return nil }
+        guard AXIsProcessTrusted() else {
+            if !loggedMissingAX {
+                loggedMissingAX = true
+                AppLogger.log("activity", level: .warning, "ax_missing window titles unavailable")
+            }
+            return nil
+        }
         let appElement = AXUIElementCreateApplication(pid)
         var windowRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &windowRef) == .success,
