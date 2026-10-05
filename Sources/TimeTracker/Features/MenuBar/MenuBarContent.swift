@@ -154,16 +154,24 @@ struct MenuBarContent: View {
             .padding(10)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.12)))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.orange.opacity(0.4), lineWidth: 1))
-        case .autoEndNotice:
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "moon.zzz.fill")
-                    .foregroundStyle(.blue)
-                Text(prompt.message)
-                    .font(.callout)
-                    .lineLimit(3)
-                Spacer()
-                Button("Dismiss") { completion.dismissNotice() }
-                    .buttonStyle(.borderless)
+        case let .awayQuestion(from, _):
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "moon.zzz.fill")
+                        .foregroundStyle(.blue)
+                    Text(prompt.message)
+                        .font(.callout)
+                        .lineLimit(3)
+                }
+                HStack(spacing: 6) {
+                    Button("End at \(hhmm(from))") { completion.endAtAwayStart() }
+                        .buttonStyle(.bordered)
+                    Spacer()
+                    Button("Remove away time") { completion.excludeAwayTime() }
+                        .buttonStyle(.bordered)
+                    Button("Keep") { completion.confirmContinue() }
+                        .buttonStyle(.borderedProminent)
+                }
             }
             .padding(10)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.10)))

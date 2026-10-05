@@ -43,17 +43,22 @@ enum TimelineGuard {
         case reject(String)
     }
 
+    /// - Parameter previousEnd: when the most recent closed entry ended. A fresh start
+    ///   is never back-dated before it, so answering a question late cannot create an
+    ///   entry that overlaps one the user already stopped.
     static func plan(
         current: Segment?,
         boundaryAt: Date,
         now: Date,
+        previousEnd: Date? = nil,
         config: Config = .default
     ) -> Plan {
         // Never schedule a boundary in the future.
         var boundary = min(boundaryAt, now)
 
         guard let current else {
-            let earliest = now.addingTimeInterval(-config.maxBackdateSeconds)
+            var earliest = now.addingTimeInterval(-config.maxBackdateSeconds)
+            if let previousEnd { earliest = max(earliest, min(previousEnd, now)) }
             return .startFresh(at: max(boundary, earliest))
         }
 

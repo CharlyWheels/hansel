@@ -11,14 +11,13 @@ final class FocusArbiterTests: XCTestCase {
 
     // Recorders
     private var applied: [FocusPolicy.Action] = []
-    private var stops: [Date] = []
     private var decisions: [FocusDecision] = []
     private var consultCount = 0
 
     override func setUp() {
         super.setUp()
         clock = t0.addingTimeInterval(3000)
-        applied = []; stops = []; decisions = []; consultCount = 0
+        applied = []; decisions = []; consultCount = 0
     }
 
     // MARK: - Fixtures
@@ -111,7 +110,6 @@ final class FocusArbiterTests: XCTestCase {
                 )
             },
             apply: { [weak self] action, _, _ in self?.applied.append(action) },
-            stop: { [weak self] at in self?.stops.append(at) },
             record: { [weak self] decision in self?.decisions.append(decision) }
         )
         deps.now = { [weak self] in self?.clock ?? Date() }
@@ -133,7 +131,6 @@ final class FocusArbiterTests: XCTestCase {
 
         XCTAssertEqual(applied.count, 1)
         guard case .ask = applied.first else { return XCTFail("expected ask, got \(applied)") }
-        XCTAssertTrue(stops.isEmpty, "asking must never mutate the timeline")
     }
 
     func test_modelSayingSameTaskProducesNoQuestion() async {
@@ -168,13 +165,15 @@ final class FocusArbiterTests: XCTestCase {
         XCTAssertEqual(consultCount, 2)
     }
 
-    func test_prolongedIdleStopsTheEntryWithoutConsulting() async {
+    func test_idleNeverStopsTheEntryOrConsults() async {
+        // The user always stops the timer. Being away is asked about on return.
         let idleStart = clock.addingTimeInterval(-600)
         let arbiter = makeArbiter(isIdle: true, idleStartedAt: idleStart)
         await arbiter.tick()
 
-        XCTAssertEqual(stops, [idleStart], "must end at the moment work stopped")
-        XCTAssertEqual(consultCount, 0, "ending on idle needs no model call")
+        XCTAssertTrue(applied.isEmpty)
+        XCTAssertEqual(consultCount, 0)
+        XCTAssertTrue(decisions.isEmpty)
     }
 
     func test_recentManualEditProtectsTheEntry() async {

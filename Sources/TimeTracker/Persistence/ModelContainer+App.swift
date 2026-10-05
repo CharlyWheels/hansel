@@ -2,19 +2,30 @@ import Foundation
 import SwiftData
 
 enum AppModelContainer {
+    static let schema = Schema([
+        Customer.self,
+        Project.self,
+        Role.self,
+        TimeEntry.self,
+        ActivitySample.self,
+        IdleInterval.self,
+        CalendarEventLink.self,
+        ClassificationRule.self,
+        Todo.self,
+        FocusDecision.self
+    ])
+
+    /// Where the previous store was moved if it could not be opened, so the UI can
+    /// tell the user instead of silently presenting an empty app.
+    @MainActor private(set) static var quarantinedStorePath: String?
+
+    /// A throwaway store for tests.
+    @MainActor static func inMemory() throws -> ModelContainer {
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        return try ModelContainer(for: schema, configurations: [config])
+    }
+
     @MainActor static let shared: ModelContainer = {
-        let schema = Schema([
-            Customer.self,
-            Project.self,
-            Role.self,
-            TimeEntry.self,
-            ActivitySample.self,
-            IdleInterval.self,
-            CalendarEventLink.self,
-            ClassificationRule.self,
-            Todo.self,
-            FocusDecision.self
-        ])
         let url = appSupportDirectory().appending(path: "TimeTracker.store")
         do {
             let container = try makeContainer(schema: schema, url: url)
@@ -29,6 +40,7 @@ enum AppModelContainer {
             AppLogger.persistence.error("ModelContainer init failed: \(error.localizedDescription, privacy: .public)")
             AppLogger.log("persistence", level: .error, "container_failed: \(error.localizedDescription)")
             let moved = quarantineStore(at: url)
+            quarantinedStorePath = moved
             do {
                 let container = try makeContainer(schema: schema, url: url)
                 AppLogger.persistence.notice("Recovered with a fresh store; previous store moved to \(moved ?? "-", privacy: .public)")
@@ -77,9 +89,16 @@ enum AppModelContainer {
         return dir
     }
 
+    /// Seeds the default roles once per install. Keyed on a flag rather than "no roles
+    /// exist", so roles the user deleted on purpose do not come back on next launch.
     @MainActor
     private static func seedDefaultsIfEmpty(container: ModelContainer) {
-        let ctx = ModelContext(container)
+        let seededKey = "didSeedDefaultRoles"
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: seededKey) else { return }
+        defaults.set(true, forKey: seededKey)
+        // The shared main context, not a private one, so views see the rows at once.
+        let ctx = container.mainContext
         let roleDescriptor = FetchDescriptor<Role>()
         let existing = (try? ctx.fetch(roleDescriptor)) ?? []
         guard existing.isEmpty else { return }

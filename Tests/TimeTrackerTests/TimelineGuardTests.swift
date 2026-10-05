@@ -113,4 +113,15 @@ final class TimelineGuardTests: XCTestCase {
             }
         }
     }
+
+    func test_freshStartIsNotBackdatedBeforeThePreviousEntryEnded() {
+        let previousEnd = now.addingTimeInterval(-300)
+        let plan = TimelineGuard.plan(
+            current: nil,
+            boundaryAt: now.addingTimeInterval(-900),
+            now: now,
+            previousEnd: previousEnd
+        )
+        XCTAssertEqual(plan, .startFresh(at: previousEnd))
+    }
 }

@@ -23,7 +23,6 @@ struct GeneralSettingsView: View {
     @AppStorage("idleThresholdMinutes") private var idleThresholdMinutes: Int = 5
     @AppStorage("autoStartActivityMinutes") private var autoStartActivityMinutes: Int = 10
     @AppStorage("promptIdleMinutes") private var promptIdleMinutes: Int = 2
-    @AppStorage("autoEndIdleMinutes") private var autoEndIdleMinutes: Int = 5
     @AppStorage("periodicCheckMinutes") private var periodicCheckMinutes: Int = 90
     @AppStorage("switchPromptTimeoutMinutes") private var switchPromptTimeoutMinutes: Int = 10
     @State private var launchAtLogin: Bool = LaunchAtLogin.isEnabled
@@ -38,18 +37,14 @@ struct GeneralSettingsView: View {
                 Text("When the system has been idle for longer than the threshold, the timer will not auto-start. After the configured minutes of continuous activity without a running timer, the AI drafts a new entry and the timer starts.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Section("Auto-end") {
-                Stepper("Prompt after idle: \(promptIdleMinutes) min",
-                        value: $promptIdleMinutes, in: 1...30)
-                    .onChange(of: promptIdleMinutes) { _, _ in clampPromptIdle() }
-                Stepper("Auto-end after idle: \(autoEndIdleMinutes) min",
-                        value: $autoEndIdleMinutes, in: 2...60)
-                    .onChange(of: autoEndIdleMinutes) { _, _ in clampPromptIdle() }
+            Section("Check-ins") {
+                Stepper("Ask about away time after: \(promptIdleMinutes) min",
+                        value: $promptIdleMinutes, in: 1...120)
                 Stepper("Periodic check-in every: \(periodicCheckMinutes) min",
                         value: $periodicCheckMinutes, in: 15...480, step: 15)
                 Stepper("Unanswered switch question expires after: \(switchPromptTimeoutMinutes) min",
                         value: $switchPromptTimeoutMinutes, in: 2...60)
-                Text("When a timer is running and you come back from being briefly idle (or the entry has been running a long time), you'll be asked if you're still working on it. If you're idle past the auto-end threshold, the entry is closed at the moment you became idle.")
+                Text("The timer never stops by itself. When you come back after being away while a timer ran, you'll be asked whether to keep that time, remove it, or end the entry when you left. Time in a detected call is never treated as away. Long-running entries also get a periodic check-in.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Startup") {
@@ -60,14 +55,6 @@ struct GeneralSettingsView: View {
             }
         }
         .formStyle(.grouped)
-    }
-
-    /// Prompt threshold must stay strictly below auto-end threshold, otherwise the "short
-    /// idle on return" prompt would never fire (auto-end would win every time).
-    private func clampPromptIdle() {
-        if promptIdleMinutes >= autoEndIdleMinutes {
-            promptIdleMinutes = max(1, autoEndIdleMinutes - 1)
-        }
     }
 }
 

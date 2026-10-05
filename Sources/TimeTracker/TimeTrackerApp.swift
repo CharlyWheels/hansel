@@ -20,6 +20,9 @@ struct TimeTrackerApp: App {
     @State private var arbiter: FocusArbiter
 
     init() {
+        // A second instance would open the same SQLite store, and if that failed it
+        // would move the live store aside from under the first one.
+        Self.exitIfAlreadyRunning()
         let c = AppModelContainer.shared
         self.container = c
         // All services share `container.mainContext` — the same context SwiftUI views
@@ -48,6 +51,7 @@ struct TimeTrackerApp: App {
         )
         let audio = AudioInputMonitor()
         let meeting = MeetingDetector(audio: audio, idleMonitor: idle)
+        completion.meetingDetector = meeting
         // Two-way wiring: the monitor stamps meeting flags onto each sample, and the
         // detector reads recent samples back for conference URLs the frontmost-app
         // stream would otherwise miss.
@@ -87,7 +91,6 @@ struct TimeTrackerApp: App {
                     previousTitle: store.currentEntry()?.title ?? ""
                 )
             },
-            stop: { [weak ctrl] at in ctrl?.stop(at: at) },
             record: { [weak store] decision in store?.record(decision) }
         )
         deps.samples = { [weak store] from, to in store?.samples(from: from, to: to) ?? [] }
@@ -158,6 +161,33 @@ struct TimeTrackerApp: App {
 
     @State private var servicesStarted = false
 
+    private static func exitIfAlreadyRunning() {
+        guard let bundleId = Bundle.main.bundleIdentifier else { return }
+        let me = ProcessInfo.processInfo.processIdentifier
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
+            .filter { $0.processIdentifier != me }
+        guard let other = others.first else { return }
+        other.activate()
+        AppLogger.log("ui", level: .notice, "second_instance_exit other=\(other.processIdentifier)")
+        exit(0)
+    }
+
+    /// The store could not be opened and was moved aside. Say so, with the path, rather
+    /// than letting the user discover an empty app.
+    private func reportQuarantinedStoreIfAny() {
+        guard let path = AppModelContainer.quarantinedStorePath else { return }
+        let alert = NSAlert()
+        alert.messageText = "Hansel could not open its data"
+        alert.informativeText = "The previous database was moved to:\n\(path)\n\nHansel started with an empty one. Your old data is still in that file."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Show in Finder")
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn {
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+        }
+    }
+
     private func bootServicesOnce() {
         guard !servicesStarted else { return }
         servicesStarted = true
@@ -173,6 +203,7 @@ struct TimeTrackerApp: App {
         promptCenter.start()
         Task { await calendarService.start() }
         Task { await meetingProvider.start() }
+        reportQuarantinedStoreIfAny()
         AppLogger.ui.info("Background services started")
         AppLogger.log("ui", level: .info, "services_started")
     }

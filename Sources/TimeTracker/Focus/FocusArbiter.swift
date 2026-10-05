@@ -9,7 +9,7 @@ import Foundation
 /// could start while a previous task kept running.
 ///
 /// The arbiter runs whether or not something is being tracked, gathers evidence, and
-/// decides keep / stop / ask. It holds no `ModelContext`: every input and effect is an
+/// decides keep / ask. It holds no `ModelContext`: every input and effect is an
 /// injected closure, so the sequencing rules that actually matter — never two
 /// consultations at once, never act on a stale proposal, never exceed the budget — are
 /// ordinary unit tests instead of hopes.
@@ -38,8 +38,6 @@ final class FocusArbiter {
         /// Applies the chosen action, given the id of the decision it was logged
         /// under so the user's answer can be attached to the right row.
         var apply: (FocusPolicy.Action, ContextSegmenter.BoundaryCandidate, UUID) -> Void
-        /// Ends the running entry at a supplied instant.
-        var stop: (Date) -> Void
         /// Appends to the decision log.
         var record: (FocusDecision) -> Void
     }
@@ -96,13 +94,9 @@ final class FocusArbiter {
         let now = deps.now()
         let config = settings()
 
-        // 1. HARD STOP — prolonged idle ends the entry with no model call at all.
-        if deps.isIdle(), deps.currentEntry() != nil, let idleStart = deps.idleStartedAt() {
-            deps.stop(idleStart)
-            phase = .watching
-            return
-        }
-        // Nothing else is worth doing while the user is away.
+        // 1. Nothing is worth doing while the user is away. Idle never ends an entry:
+        //    the user always stops the timer, and `EntryCompletionService` asks about
+        //    the away time once they are back.
         if deps.isIdle() { return }
 
         // 2. A question is outstanding. Only a hard boundary may supersede it, so an
