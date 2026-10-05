@@ -12,6 +12,8 @@ struct TimeTrackerApp: App {
     @State private var suggestionEngine: SuggestionEngine
     @State private var watchdog: ActivityWatchdog
     @State private var completionService: EntryCompletionService
+    @State private var audioMonitor: AudioInputMonitor
+    @State private var meetingDetector: MeetingDetector
 
     init() {
         let c = AppModelContainer.shared
@@ -40,6 +42,21 @@ struct TimeTrackerApp: App {
             idleMonitor: idle,
             modelContext: ctx
         )
+        let audio = AudioInputMonitor()
+        let meeting = MeetingDetector(audio: audio, idleMonitor: idle)
+        // Two-way wiring: the monitor stamps meeting flags onto each sample, and the
+        // detector reads recent samples back for conference URLs the frontmost-app
+        // stream would otherwise miss.
+        activity.meetingDetector = meeting
+        meeting.recentConferenceURL = { [weak ctx] in
+            guard let ctx else { return false }
+            let since = Date().addingTimeInterval(-300)
+            let descriptor = FetchDescriptor<ActivitySample>(
+                predicate: #Predicate<ActivitySample> { $0.timestamp >= since }
+            )
+            let recent = (try? ctx.fetch(descriptor)) ?? []
+            return recent.contains { ConferenceCatalog.isConferenceURL($0.url) }
+        }
         _controller = State(wrappedValue: ctrl)
         _activityMonitor = State(wrappedValue: activity)
         _idleMonitor = State(wrappedValue: idle)
@@ -47,6 +64,8 @@ struct TimeTrackerApp: App {
         _suggestionEngine = State(wrappedValue: engine)
         _watchdog = State(wrappedValue: watch)
         _completionService = State(wrappedValue: completion)
+        _audioMonitor = State(wrappedValue: audio)
+        _meetingDetector = State(wrappedValue: meeting)
         AppLogger.ui.info("TimeTrackerApp launched")
         AppLogger.log("ui", level: .info, "launch")
     }
@@ -91,6 +110,8 @@ struct TimeTrackerApp: App {
         DataRetentionService.runIfDue(modelContext: container.mainContext)
         // IdleMonitor first so ActivityMonitor can skip sampling from the very first tick.
         idleMonitor.start()
+        audioMonitor.start()
+        meetingDetector.start()
         activityMonitor.start()
         watchdog.start()
         completionService.start()

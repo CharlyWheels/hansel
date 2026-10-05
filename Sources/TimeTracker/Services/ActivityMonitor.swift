@@ -10,6 +10,9 @@ import ApplicationServices
 final class ActivityMonitor {
     private let modelContext: ModelContext
     private weak var idleMonitor: IdleMonitor?
+    /// Set after construction — the detector needs this monitor's samples in turn, so
+    /// the two are wired together rather than one owning the other.
+    weak var meetingDetector: MeetingDetector?
     private var timer: Timer?
     private var activationObserver: NSObjectProtocol?
     private var lastSample: ActivitySample?
@@ -79,10 +82,13 @@ final class ActivityMonitor {
             if let t = pair.title, !t.isEmpty { windowTitle = t }
         }
 
+        let flags = currentFlags(bundleId: bundleId, windowTitle: windowTitle, url: url)
+
         if let last = lastSample,
            last.bundleId == bundleId,
            last.windowTitle == windowTitle,
            last.url == url,
+           last.flags == flags,
            Date().timeIntervalSince(last.timestamp) < 25 {
             return
         }
@@ -92,7 +98,8 @@ final class ActivityMonitor {
             bundleId: bundleId,
             appName: appName,
             windowTitle: windowTitle,
-            url: url
+            url: url,
+            flags: flags
         )
         modelContext.insert(sample)
         lastSample = sample
@@ -102,6 +109,25 @@ final class ActivityMonitor {
         } catch {
             AppLogger.activity.error("save failed: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// Signals attached to this instant, so the segmenter can weigh "was I on a call"
+    /// as part of the context rather than needing a live service at scoring time.
+    private func currentFlags(bundleId: String, windowTitle: String?, url: String?) -> SignalFlags {
+        var flags: SignalFlags = []
+        if let meeting = meetingDetector?.state, meeting.isInMeeting {
+            flags.insert(.micActive)
+        }
+        if ConferenceCatalog.isConferenceApp(bundleId) {
+            // Zoom sitting open in the background is not a call. An explicit "idle"
+            // title vetoes the flag; an unknown title (Teams, Slack) still sets it,
+            // because for those apps the title never carries the answer either way.
+            if ConferenceCatalog.titleIndicatesCall(bundleId: bundleId, windowTitle: windowTitle) != false {
+                flags.insert(.videoCallApp)
+            }
+        }
+        if ConferenceCatalog.isConferenceURL(url) { flags.insert(.conferenceURL) }
+        return flags
     }
 
     // MARK: - AX window title
