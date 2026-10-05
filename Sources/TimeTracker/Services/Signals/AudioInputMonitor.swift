@@ -68,7 +68,14 @@ final class AudioInputMonitor {
     // MARK: - State
 
     private func reconcile() {
-        let capturing = inputDeviceIDs().contains(where: isRunningSomewhere)
+        // "Running somewhere" is per device, not per direction: a headset that is only
+        // playing music reads as running. When the process API is available, require
+        // a process that is actually running input.
+        let deviceBusy = inputDeviceIDs().contains(where: isRunningSomewhere)
+        var capturing = deviceBusy
+        if deviceBusy, let anyInput = anyProcessRunningInput() {
+            capturing = anyInput
+        }
         guard capturing != isCapturing else { return }
         isCapturing = capturing
         changedAt = Date()
@@ -185,6 +192,22 @@ final class AudioInputMonitor {
     /// check would buy nothing — support is detected from the property read itself and
     /// cached. Treat a nil result as "unknown", never as "nobody is capturing".
     func capturingBundleIDs() -> Set<String>? {
+        guard let processes = processObjects() else { return nil }
+        var bundles: Set<String> = []
+        for process in processes where isRunningInput(process) {
+            if let bundle = bundleID(of: process), !bundle.isEmpty { bundles.insert(bundle) }
+        }
+        return bundles
+    }
+
+    /// Whether any process (bundled or not) is running audio input, or nil when the
+    /// process-object API is unavailable.
+    private func anyProcessRunningInput() -> Bool? {
+        guard let processes = processObjects() else { return nil }
+        return processes.contains(where: isRunningInput)
+    }
+
+    private func processObjects() -> [AudioObjectID]? {
         guard supportsProcessObjects != false else { return nil }
 
         var address = Self.address(kAudioHardwarePropertyProcessObjectList)
@@ -202,12 +225,7 @@ final class AudioInputMonitor {
         guard AudioObjectGetPropertyData(
             Self.systemObject, &address, 0, nil, &size, &processes
         ) == noErr else { return nil }
-
-        var bundles: Set<String> = []
-        for process in processes where isRunningInput(process) {
-            if let bundle = bundleID(of: process), !bundle.isEmpty { bundles.insert(bundle) }
-        }
-        return bundles
+        return processes
     }
 
     private var supportsProcessObjects: Bool?

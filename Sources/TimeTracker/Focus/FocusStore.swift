@@ -43,13 +43,14 @@ final class FocusStore {
     }
 
     func idleSpans(from: Date, to: Date) -> [IdleSpan] {
+        // Bounded in the store: only spans that can overlap the window. Open spans
+        // (end == nil) are the one in progress, so they always qualify.
         let descriptor = FetchDescriptor<IdleInterval>(
+            predicate: #Predicate<IdleInterval> { $0.start <= to && ($0.end ?? to) >= from },
             sortBy: [SortDescriptor(\IdleInterval.start)]
         )
         let rows = (try? modelContext.fetch(descriptor)) ?? []
-        return rows
-            .filter { ($0.end ?? Date()) >= from && $0.start <= to }
-            .map { IdleSpan(start: $0.start, end: $0.end) }
+        return rows.map { IdleSpan(start: $0.start, end: $0.end) }
     }
 
     func currentEntry() -> EntryContext? {
@@ -168,25 +169,41 @@ final class FocusStore {
 
     /// Transitions the user has rejected repeatedly. Fed back into the segmenter so a
     /// stubbornly wrong signal silences itself without a code change.
+    ///
+    /// Keyed on the stored `transition` (`"before>after"`), the same format the
+    /// segmenter checks. It used to key on the free-text evidence, which includes the
+    /// score, so no two rows ever matched and nothing was ever suppressed.
     func suppressedTransitions(rejectionThreshold: Int = 3) -> Set<String> {
-        let descriptor = FetchDescriptor<FocusDecision>(
-            predicate: #Predicate<FocusDecision> { $0.userResponseRaw != nil }
+        let now = Date()
+        // Cached: this runs on every arbiter tick and the log only grows.
+        if let cached = suppressionCache, now.timeIntervalSince(cached.at) < 300 {
+            return cached.value
+        }
+        let since = now.addingTimeInterval(-60 * 86_400)
+        var descriptor = FetchDescriptor<FocusDecision>(
+            predicate: #Predicate<FocusDecision> {
+                $0.userResponseRaw != nil && $0.transition != nil && $0.createdAt >= since
+            }
         )
+        descriptor.fetchLimit = 2000
         let rows = (try? modelContext.fetch(descriptor)) ?? []
         var rejections: [String: Int] = [:]
         var acceptances: [String: Int] = [:]
         for row in rows {
-            let key = row.evidence
-            guard !key.isEmpty else { continue }
+            guard let key = row.transition, !key.isEmpty else { continue }
             if row.userResponse == .keptCurrent { rejections[key, default: 0] += 1 }
             if row.userResponse == .switched { acceptances[key, default: 0] += 1 }
         }
-        return Set(
+        let value = Set(
             rejections
                 .filter { $0.value >= rejectionThreshold && acceptances[$0.key, default: 0] == 0 }
                 .keys
         )
+        suppressionCache = (now, value)
+        return value
     }
+
+    private var suppressionCache: (at: Date, value: Set<String>)?
 
     // MARK: - Writes
 

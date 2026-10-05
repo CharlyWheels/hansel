@@ -93,7 +93,11 @@ struct MenuBarContent: View {
                 Button("Sigo igual") { prompts.keepCurrent() }
                     .buttonStyle(.bordered)
                 Spacer()
-                Button("Es otra cosa…") { prompts.switchAndEdit() }
+                Button("Es otra cosa…") {
+                    prompts.switchAndEdit()
+                    openWindow(id: "main")
+                    NSApp.activate(ignoringOtherApps: true)
+                }
                     .buttonStyle(.bordered)
                 if pending.hasLabel {
                     Button("Cambiar") { prompts.applySwitch() }

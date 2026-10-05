@@ -263,9 +263,12 @@ enum ContextSegmenter {
             if boost > meetingBoost {
                 meetingBoost = boost
                 meetingEventId = meeting.eventId
-                meetingCorroborated = AttendanceFilter.isCorroborated(
-                    callShareAfter: isStart ? after.callShare : before.callShare
-                )
+                // A start is corroborated by a call after it. An end needs the call to
+                // have actually stopped: a meeting running over its slot is not over.
+                meetingCorroborated = isStart
+                    ? AttendanceFilter.isCorroborated(callShareAfter: after.callShare)
+                    : AttendanceFilter.isCorroborated(callShareAfter: before.callShare)
+                        && after.callShare < 0.1
                 let reason: BoundaryReason = isStart ? .meetingStart : .meetingEnd
                 if !reasons.contains(reason) { reasons.append(reason) }
             }
@@ -309,7 +312,9 @@ enum ContextSegmenter {
             before: before,
             after: after,
             isProvisional: isProvisional,
-            isHard: meetingCorroborated || score >= config.hardThreshold,
+            // A high score alone may make a candidate hard only once it has settled;
+            // otherwise it would skip the dwell gate on partial evidence.
+            isHard: meetingCorroborated || (score >= config.hardThreshold && !isProvisional),
             meetingEventId: meetingEventId
         )
     }
@@ -380,18 +385,27 @@ enum ContextSegmenter {
         _ candidates: [BoundaryCandidate],
         config: Config
     ) -> [BoundaryCandidate] {
-        let sorted = candidates.sorted { lhs, rhs in
+        // Meeting edges win clashes: an app switch a minute before a meeting must not
+        // swallow the meeting candidate, its hardness and its event id.
+        func isMeeting(_ c: BoundaryCandidate) -> Bool {
+            c.meetingEventId != nil
+        }
+        let byPriority = candidates.sorted { lhs, rhs in
+            if isMeeting(lhs) != isMeeting(rhs) { return isMeeting(lhs) }
             if lhs.score != rhs.score { return lhs.score > rhs.score }
             return lhs.at > rhs.at        // ties: prefer the more recent instant
         }
         var kept: [BoundaryCandidate] = []
-        for candidate in sorted {
+        for candidate in byPriority {
             let clashes = kept.contains {
                 abs($0.at.timeIntervalSince(candidate.at)) < config.suppressionSeconds
             }
             if !clashes { kept.append(candidate) }
         }
-        return kept
+        return kept.sorted { lhs, rhs in
+            if lhs.score != rhs.score { return lhs.score > rhs.score }
+            return lhs.at > rhs.at
+        }
     }
 
     // MARK: - Profiles

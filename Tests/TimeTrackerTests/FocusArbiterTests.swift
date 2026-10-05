@@ -80,6 +80,7 @@ final class FocusArbiterTests: XCTestCase {
         verdict: BoundaryVerdict? = nil,
         consultError: Error? = nil,
         entryProvider: (() -> EntryContext?)? = nil,
+        hasEntry: Bool = true,
         settings: FocusPolicy.Settings = .default,
         budget: LLMBudget = LLMBudget()
     ) -> FocusArbiter {
@@ -113,10 +114,12 @@ final class FocusArbiterTests: XCTestCase {
             record: { [weak self] decision in self?.decisions.append(decision) }
         )
         deps.now = { [weak self] in self?.clock ?? Date() }
-        deps.samples = { [weak self] _, _ in samples ?? self?.switchingSamples() ?? [] }
+        deps.samples = { [weak self] from, to in
+            (samples ?? self?.switchingSamples() ?? []).filter { $0.timestamp >= from && $0.timestamp <= to }
+        }
         deps.idleSpans = { _, _ in idleSpans }
         deps.meetings = { _, _ in meetings }
-        deps.currentEntry = { entryProvider?() ?? resolvedEntry }
+        deps.currentEntry = { hasEntry ? (entryProvider?() ?? resolvedEntry) : nil }
         deps.isIdle = { isIdle }
         deps.idleStartedAt = { idleStartedAt }
         deps.lastManualEditAt = { lastManualEditAt }
@@ -262,5 +265,90 @@ final class FocusArbiterTests: XCTestCase {
         await arbiter.tick()
         XCTAssertGreaterThan(arbiter.candidatesSeen, 0)
         XCTAssertEqual(arbiter.questionsAsked, 1)
+    }
+
+    // MARK: - Re-asking and budget
+
+    /// A switch at a fixed instant, so advancing the clock does not move the boundary.
+    private func fixedSwitch(at boundary: Date) -> [SignalSample] {
+        absoluteStream(from: boundary.addingTimeInterval(-1800), to: boundary,
+                       "com.google.Chrome", "acme api ticket",
+                       "https://acme.atlassian.net/browse/A-1")
+            + absoluteStream(from: boundary, to: boundary.addingTimeInterval(7200),
+                             "com.microsoft.VSCode", "globex invoicing migration",
+                             "https://globex.github.io/docs")
+    }
+
+    func test_boundaryTheModelRejectedIsNotAskedOnTheNextTick() async {
+        let arbiter = makeArbiter(
+            samples: fixedSwitch(at: clock.addingTimeInterval(-1200)),
+            verdict: BoundaryVerdict(
+                sameTask: true, boundaryAt: nil, title: nil, role: nil, project: nil,
+                customer: nil, todo: nil, confidence: 0.9, rationale: "same", raw: "{}"
+            )
+        )
+        await arbiter.tick()
+        XCTAssertEqual(consultCount, 1)
+        clock = clock.addingTimeInterval(30)
+        await arbiter.tick()
+        clock = clock.addingTimeInterval(300)
+        await arbiter.tick()
+
+        XCTAssertEqual(consultCount, 1, "the model already ruled on this boundary")
+        XCTAssertTrue(applied.isEmpty, "a rejected boundary must not turn into a label-free question")
+    }
+
+    func test_answeredBoundaryIsNotAskedAgainAfterTheCooldown() async {
+        let arbiter = makeArbiter(samples: fixedSwitch(at: clock.addingTimeInterval(-600)))
+        await arbiter.tick()
+        XCTAssertEqual(applied.count, 1)
+        arbiter.userResponded()
+        clock = clock.addingTimeInterval(31 * 60)   // past the 30 min drift cooldown
+        await arbiter.tick()
+
+        XCTAssertEqual(applied.count, 1)
+        XCTAssertEqual(consultCount, 1)
+    }
+
+    func test_callSpacingWaitsInsteadOfAskingWithoutALabel() async {
+        var recent = LLMBudget()
+        recent.record(at: clock.addingTimeInterval(-60))
+        let arbiter = makeArbiter(budget: recent)
+        await arbiter.tick()
+
+        XCTAssertTrue(applied.isEmpty)
+        XCTAssertEqual(consultCount, 0)
+        clock = clock.addingTimeInterval(200)
+        await arbiter.tick()
+        XCTAssertEqual(consultCount, 1, "once spacing allows, the boundary is consulted normally")
+    }
+
+    func test_nothingRunningMeansNoConsultation() async {
+        let arbiter = makeArbiter(hasEntry: false)
+        await arbiter.tick()
+        XCTAssertEqual(consultCount, 0)
+        XCTAssertTrue(applied.isEmpty)
+    }
+
+    func test_stuckSuppressionIsLoggedOnce() async {
+        let arbiter = makeArbiter()
+        await arbiter.tick()
+        arbiter.userResponded()
+        for _ in 0..<5 {
+            clock = clock.addingTimeInterval(30)
+            await arbiter.tick()
+        }
+        let suppressed = decisions.filter { $0.kind == .suppressed }
+        XCTAssertLessThanOrEqual(suppressed.count, 2)
+    }
+
+    func test_budgetSurvivesARelaunch() {
+        let defaults = UserDefaults(suiteName: "LLMBudgetTests-\(UUID().uuidString)")!
+        var budget = LLMBudget()
+        budget.record(at: clock)
+        budget.persist(defaults: defaults)
+        let loaded = LLMBudget.loadPersisted(defaults: defaults, now: clock)
+        XCTAssertEqual(loaded.timestamps, [clock])
+        XCTAssertEqual(loaded.denial(at: clock.addingTimeInterval(10), isHard: false), .spacing)
     }
 }

@@ -12,6 +12,8 @@ final class ActivityWatchdog {
     private var windowStart: Date?
     private var pollTimer: Timer?
     private var pendingDraft: Task<Void, Never>?
+    /// Told about every model call, so it counts against the shared budget.
+    var onModelCall: (() -> Void)?
 
     init(
         timerController: TimerController,
@@ -78,6 +80,7 @@ final class ActivityWatchdog {
     private func triggerDraft(from: Date) async {
         guard let controller = timerController, !controller.isRunning else { return }
         do {
+            onModelCall?()
             let draft = try await suggestionEngine.draft(from: from, to: Date())
             // The model call can take a while; the world may have moved meanwhile.
             guard !Task.isCancelled, !controller.isRunning, idleMonitor?.isIdle != true else {

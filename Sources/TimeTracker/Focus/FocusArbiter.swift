@@ -40,6 +40,8 @@ final class FocusArbiter {
         var apply: (FocusPolicy.Action, ContextSegmenter.BoundaryCandidate, UUID) -> Void
         /// Appends to the decision log.
         var record: (FocusDecision) -> Void
+        /// Saves the budget after each call, so the daily ceiling survives a relaunch.
+        var persistBudget: (LLMBudget) -> Void = { _ in }
     }
 
     enum Phase: Equatable {
@@ -60,6 +62,12 @@ final class FocusArbiter {
 
     /// Per-bucket cooldowns, so a stubborn signal cannot ask twice in a row.
     private var lastAskPerBucket: [String: Date] = [:]
+    /// Candidates already dealt with — asked, or judged "same task" by the model.
+    /// The segmenter keeps re-emitting a boundary for as long as it is inside the
+    /// lookback window, so without this the same instant was asked about again.
+    private var handledCandidates: [String: Date] = [:]
+    /// Suppressions already logged, so a stuck candidate writes one row, not one per tick.
+    private var loggedSuppressions: Set<String> = []
     private var recentPromptTimes: [Date] = []
     private var pollTimer: Timer?
 
@@ -106,6 +114,12 @@ final class FocusArbiter {
         // 3. Never two consultations in flight.
         if phase == .consulting { return }
 
+        // 3b. Nothing is being tracked, so there is no task to switch away from.
+        //     Starting from cold is the calendar's and the watchdog's job; consulting
+        //     here only spent budget on answers that were then discarded as stale.
+        guard let entry = deps.currentEntry() else { return }
+        pruneHandled(now: now)
+
         // 4. Never overwrite a human. Editing an entry by hand buys protection.
         if let edited = deps.lastManualEditAt(),
            now.timeIntervalSince(edited) < TimeInterval(config.manualLockMinutes) * 60 {
@@ -122,7 +136,7 @@ final class FocusArbiter {
                 samples: deps.samples(now.addingTimeInterval(-lookback), now),
                 idleSpans: deps.idleSpans(now.addingTimeInterval(-lookback), now),
                 meetings: deps.meetings(now.addingTimeInterval(-lookback), now.addingTimeInterval(3600)),
-                currentEntry: deps.currentEntry(),
+                currentEntry: entry,
                 allowedCalendarIds: deps.allowedCalendarIds(),
                 config: segConfig
             )
@@ -131,38 +145,56 @@ final class FocusArbiter {
 
         // 6. Only settled candidates are actionable — that is the whole point of the
         //    dwell gate. A hard boundary (a corroborated meeting) may act at once.
-        guard let candidate = output.candidates.first(where: { !$0.isProvisional || $0.isHard })
-        else { return }
-
-        // If a soft question is outstanding, replace it only with a hard candidate.
-        if case .awaitingUser = phase, !candidate.isHard { return }
-
-        let bucket = bucketKey(for: candidate)
-
-        // 7. Cooldowns and the prompt rate limit, before any spend.
-        if let last = lastAskPerBucket[bucket],
-           now.timeIntervalSince(last) < cooldownSeconds(for: candidate) {
-            record(.suppressed, candidate: candidate, bucket: bucket, note: "cooldown")
-            return
+        //    Walk the list rather than taking the top one: a strong candidate that is
+        //    cooling down must not hide a weaker but newer one, such as a meeting.
+        let awaiting: Bool = { if case .awaitingUser = phase { return true } else { return false } }()
+        var chosen: ContextSegmenter.BoundaryCandidate?
+        for candidate in output.candidates where !candidate.isProvisional || candidate.isHard {
+            // If a soft question is outstanding, replace it only with a hard candidate.
+            if awaiting && !candidate.isHard { continue }
+            if handledCandidates[handledKey(candidate, entryID: entry.id)] != nil { continue }
+            let bucket = bucketKey(for: candidate)
+            // 7. Cooldowns, before any spend.
+            if let last = lastAskPerBucket[bucket],
+               now.timeIntervalSince(last) < cooldownSeconds(for: candidate) {
+                recordSuppressionOnce(candidate, bucket: bucket, entryID: entry.id, note: "cooldown")
+                continue
+            }
+            chosen = candidate
+            break
         }
+        guard let candidate = chosen else { return }
+        let bucket = bucketKey(for: candidate)
+        let key = handledKey(candidate, entryID: entry.id)
+
         recentPromptTimes.removeAll { now.timeIntervalSince($0) >= 3600 }
         if recentPromptTimes.count >= config.maxPromptsPerHour {
-            record(.suppressed, candidate: candidate, bucket: bucket, note: "prompt_rate_limit")
+            recordSuppressionOnce(candidate, bucket: bucket, entryID: entry.id, note: "prompt_rate_limit")
             return
         }
 
-        // 8. Budget. When it is spent we still surface the boundary, just without a
-        //    proposed label — losing the boundary entirely would be worse.
-        guard budget.consume(at: now, isHard: candidate.isHard) else {
-            record(.suppressed, candidate: candidate, bucket: bucket, note: "budget_exhausted")
+        // 8. Budget. Too soon after the last call is transient: try again next tick.
+        //    When the allowance is really spent we still surface the boundary, just
+        //    without a proposed label — losing the boundary entirely would be worse.
+        switch budget.denial(at: now, isHard: candidate.isHard) {
+        case .spacing?:
+            return
+        case .exhausted?:
+            recordSuppressionOnce(candidate, bucket: bucket, entryID: entry.id, note: "budget_exhausted")
+            handledCandidates[key] = now
             askWithoutLabel(candidate: candidate, bucket: bucket, now: now)
             return
+        case nil:
+            break
         }
 
         guard let context = deps.buildContext(candidate) else {
             record(.error, candidate: candidate, bucket: bucket, note: "no_context")
             return
         }
+        // Spend only once a call will really be made.
+        _ = budget.consume(at: now, isHard: candidate.isHard)
+        deps.persistBudget(budget)
 
         // 9. Consult.
         phase = .consulting
@@ -171,13 +203,16 @@ final class FocusArbiter {
             verdict = try await deps.consult(context)
         } catch {
             phase = .watching
+            // Back off this bucket so a failing provider is not retried every tick.
+            lastAskPerBucket[bucket] = now
             record(.error, candidate: candidate, bucket: bucket, note: error.localizedDescription)
             AppLogger.log("ai", level: .error, "boundary_consult_failed: \(error.localizedDescription)")
             return
         }
 
         // 10. Re-check: the world may have moved while we waited on the network.
-        guard let entry = deps.currentEntry(), entry.id == context.currentEntry?.id else {
+        guard let latest = deps.currentEntry(), latest.id == context.currentEntry?.id else {
+            handledCandidates[key] = now
             phase = .watching
             record(.suppressed, candidate: candidate, bucket: bucket, note: "stale_proposal")
             return
@@ -186,7 +221,7 @@ final class FocusArbiter {
         let action = FocusPolicy.decide(
             verdict: verdict,
             candidateScore: candidate.score,
-            currentEntryAge: deps.now().timeIntervalSince(entry.startAt),
+            currentEntryAge: deps.now().timeIntervalSince(latest.startAt),
             evidence: describe(candidate),
             settings: config
         )
@@ -194,6 +229,10 @@ final class FocusArbiter {
         switch action {
         case .keep:
             phase = .watching
+            // The model has ruled on this boundary. Do not ask it again, and let the
+            // bucket cool down as if the user had been asked.
+            handledCandidates[key] = now
+            lastAskPerBucket[bucket] = now
             // The model saw the same evidence and disagreed with the machine. Worth
             // logging: this is the signal that tunes the segmenter's thresholds.
             record(.noop, candidate: candidate, bucket: bucket,
@@ -201,6 +240,7 @@ final class FocusArbiter {
 
         case let .ask(proposal), let .correctInPlace(proposal):
             phase = .awaitingUser(boundaryAt: proposal.boundaryAt, isHard: candidate.isHard)
+            handledCandidates[key] = now
             lastAskPerBucket[bucket] = now
             recentPromptTimes.append(now)
             questionsAsked += 1
@@ -213,6 +253,7 @@ final class FocusArbiter {
 
         case let .switchTo(proposal):
             phase = .watching
+            handledCandidates[key] = now
             lastAskPerBucket[bucket] = now
             let decisionID = record(
                 .autoSwitched, candidate: candidate, bucket: bucket,
@@ -224,8 +265,18 @@ final class FocusArbiter {
     }
 
     /// Called by the UI once the user answers, so a new proposal can be considered.
+    ///
+    /// Only releases a wait on the user. If a consultation is in flight (a hard
+    /// boundary superseding a soft question), dropping to `.watching` would let the
+    /// next tick start a second one alongside it.
     func userResponded() {
-        phase = .watching
+        if case .awaitingUser = phase { phase = .watching }
+    }
+
+    /// Counts a model call made outside the arbiter against the same budget.
+    func noteExternalModelCall(at now: Date = Date()) {
+        budget.record(at: now)
+        deps.persistBudget(budget)
     }
 
     // MARK: - Degraded ask
@@ -251,6 +302,31 @@ final class FocusArbiter {
     }
 
     // MARK: - Helpers
+
+    /// Identifies a boundary across ticks: the segmenter re-emits the same instant
+    /// (a sample timestamp or a meeting edge) for as long as it is in the lookback.
+    private func handledKey(_ candidate: ContextSegmenter.BoundaryCandidate, entryID: UUID) -> String {
+        let minute = Int(candidate.at.timeIntervalSince1970 / 60)
+        return "\(entryID.uuidString)|\(minute)|\(candidate.meetingEventId ?? "")"
+    }
+
+    private func pruneHandled(now: Date) {
+        // Twice the lookback: by then the segmenter can no longer emit the instant.
+        let horizon = segmenterConfig().lookbackSeconds * 2
+        handledCandidates = handledCandidates.filter { now.timeIntervalSince($0.value) < horizon }
+        if loggedSuppressions.count > 500 { loggedSuppressions.removeAll() }
+    }
+
+    private func recordSuppressionOnce(
+        _ candidate: ContextSegmenter.BoundaryCandidate,
+        bucket: String,
+        entryID: UUID,
+        note: String
+    ) {
+        let key = handledKey(candidate, entryID: entryID) + "|" + note
+        guard loggedSuppressions.insert(key).inserted else { return }
+        record(.suppressed, candidate: candidate, bucket: bucket, note: note)
+    }
 
     /// Cooldowns differ by what raised the candidate: a meeting edge is a rare, precise
     /// event worth acting on quickly; ordinary activity drift is not.
@@ -311,7 +387,8 @@ final class FocusArbiter {
             proposedProjectName: proposal?.project,
             proposedCustomerName: proposal?.customer,
             proposedTodoTitle: proposal?.todo,
-            fromEntryID: deps.currentEntry()?.id
+            fromEntryID: deps.currentEntry()?.id,
+            transition: candidate.topTransition
         )
         deps.record(decision)
         return decision.id

@@ -115,15 +115,19 @@ final class ActivityMonitor {
     /// as part of the context rather than needing a live service at scoring time.
     private func currentFlags(bundleId: String, windowTitle: String?, url: String?) -> SignalFlags {
         var flags: SignalFlags = []
-        if let meeting = meetingDetector?.state, meeting.isInMeeting {
+        let inMeeting = meetingDetector?.state.isInMeeting == true
+        if inMeeting {
             flags.insert(.micActive)
         }
         if ConferenceCatalog.isConferenceApp(bundleId) {
             // Zoom sitting open in the background is not a call. An explicit "idle"
-            // title vetoes the flag; an unknown title (Teams, Slack) still sets it,
-            // because for those apps the title never carries the answer either way.
-            if ConferenceCatalog.titleIndicatesCall(bundleId: bundleId, windowTitle: windowTitle) != false {
-                flags.insert(.videoCallApp)
+            // title vetoes the flag. For apps whose title never says (Teams, Slack,
+            // Discord) the app being in front proves nothing — it is usually chat —
+            // so only the microphone can confirm the call.
+            switch ConferenceCatalog.titleIndicatesCall(bundleId: bundleId, windowTitle: windowTitle) {
+            case true?: flags.insert(.videoCallApp)
+            case nil where inMeeting: flags.insert(.videoCallApp)
+            default: break
             }
         }
         if ConferenceCatalog.isConferenceURL(url) { flags.insert(.conferenceURL) }

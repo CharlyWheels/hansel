@@ -49,6 +49,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
 
 struct ContentView: View {
     @State private var selection: SidebarItem = .dashboard
+    @Environment(FocusPromptCenter.self) private var prompts
 
     var body: some View {
         NavigationSplitView {
@@ -73,6 +74,14 @@ struct ContentView: View {
             case .customers: CustomersView()
             case .roles:     RolesView()
             }
+        }
+        // "It's something else…" splits the entry and then lands here to be labelled.
+        .sheet(item: Binding(
+            get: { prompts.entryToEdit },
+            set: { prompts.entryToEdit = $0 }
+        )) { entry in
+            EntryEditorView(entry: entry)
+                .frame(minWidth: 480, minHeight: 520)
         }
     }
 }

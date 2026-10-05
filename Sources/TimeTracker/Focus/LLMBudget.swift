@@ -31,25 +31,62 @@ struct LLMBudget: Equatable, Sendable {
         self.reservedForHardBoundaries = reservedForHardBoundaries
     }
 
-    func allows(at now: Date, isHard: Bool) -> Bool {
+    /// Why a call is not allowed right now.
+    enum Denial: Equatable, Sendable {
+        /// Too soon after the previous call. Transient: try again on a later tick.
+        case spacing
+        /// The hourly or daily allowance is used up.
+        case exhausted
+    }
+
+    func denial(at now: Date, isHard: Bool) -> Denial? {
         if let last = timestamps.last,
            now.timeIntervalSince(last) < minimumSpacingSeconds {
-            return false
+            return .spacing
         }
         let inLastHour = timestamps.filter { now.timeIntervalSince($0) < 3600 }.count
-        if inLastHour >= maxPerHour { return false }
+        if inLastHour >= maxPerHour { return .exhausted }
 
         let today = timestamps.filter { now.timeIntervalSince($0) < 86_400 }.count
         // Soft boundaries stop short of the reserve so a hard one later still gets through.
         let ceiling = isHard ? maxPerDay : maxPerDay - reservedForHardBoundaries
-        return today < ceiling
+        return today < ceiling ? nil : .exhausted
+    }
+
+    func allows(at now: Date, isHard: Bool) -> Bool {
+        denial(at: now, isHard: isHard) == nil
     }
 
     mutating func consume(at now: Date, isHard: Bool) -> Bool {
         guard allows(at: now, isHard: isHard) else { return false }
-        timestamps.append(now)
-        prune(now: now)
+        record(at: now)
         return true
+    }
+
+    /// Counts a call made elsewhere (the activity watchdog) against the same ceiling.
+    mutating func record(at now: Date) {
+        timestamps.append(now)
+        timestamps.sort()
+        prune(now: now)
+    }
+
+    // MARK: - Persistence
+    //
+    // An in-memory budget resets on every relaunch, so "at most N calls a day" was only
+    // true per process. The timestamps are tiny; UserDefaults is enough.
+
+    private static let defaultsKey = "llmBudget.timestamps"
+
+    static func loadPersisted(defaults: UserDefaults = .standard, now: Date = Date()) -> LLMBudget {
+        var budget = LLMBudget()
+        let raw = defaults.array(forKey: defaultsKey) as? [Double] ?? []
+        budget.timestamps = raw.map(Date.init(timeIntervalSince1970:)).sorted()
+        budget.prune(now: now)
+        return budget
+    }
+
+    func persist(defaults: UserDefaults = .standard) {
+        defaults.set(timestamps.map(\.timeIntervalSince1970), forKey: Self.defaultsKey)
     }
 
     mutating func prune(now: Date) {

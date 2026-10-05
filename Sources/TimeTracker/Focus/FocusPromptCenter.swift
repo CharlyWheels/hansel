@@ -57,8 +57,9 @@ final class FocusPromptCenter {
     private let modelContext: ModelContext
     /// Called after any answer so the arbiter can resume.
     var onResolved: (() -> Void)?
-    /// Called when the user chooses "it's something else", to open the editor.
-    var onRequestEdit: ((TimeEntry) -> Void)?
+    /// Set when the user chooses "it's something else": the entry the split just
+    /// opened, for the main window to present in the editor. Cleared by the window.
+    var entryToEdit: TimeEntry?
 
     init(timerController: TimerController, store: FocusStore, modelContext: ModelContext) {
         self.timerController = timerController
@@ -165,7 +166,7 @@ final class FocusPromptCenter {
         guard let pending, let controller = timerController else { return }
         let plan = store.plan(from: pending.proposal)
         apply(plan, pending: pending, controller: controller, response: .switchedEdited)
-        if let entry = controller.runningEntry { onRequestEdit?(entry) }
+        if let entry = controller.runningEntry { entryToEdit = entry }
     }
 
     func dismiss() {

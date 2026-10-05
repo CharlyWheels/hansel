@@ -104,7 +104,11 @@ struct TimeTrackerApp: App {
         deps.allowedCalendarIds = { [weak meetings] in meetings?.allowedCalendarIds }
         deps.suppressedTransitions = { [weak store] in store?.suppressedTransitions() ?? [] }
 
-        let focusArbiter = FocusArbiter(dependencies: deps)
+        deps.persistBudget = { $0.persist() }
+
+        let focusArbiter = FocusArbiter(dependencies: deps, budget: LLMBudget.loadPersisted())
+        // The watchdog's drafts come out of the same daily allowance.
+        watch.onModelCall = { [weak focusArbiter] in focusArbiter?.noteExternalModelCall() }
         prompts.onResolved = { [weak focusArbiter] in focusArbiter?.userResponded() }
 
         _controller = State(wrappedValue: ctrl)

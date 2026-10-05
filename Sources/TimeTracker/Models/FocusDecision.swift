@@ -44,6 +44,8 @@ final class FocusDecision {
 
     var fromEntryID: UUID? = nil
     var toEntryID: UUID? = nil
+    /// `"beforeBundleId>afterBundleId"`, the key learned suppression is stored against.
+    var transition: String? = nil
 
     /// `FocusUserResponse.rawValue`, nil while unanswered.
     var userResponseRaw: String? = nil
@@ -68,7 +70,8 @@ final class FocusDecision {
         proposedProjectName: String? = nil,
         proposedCustomerName: String? = nil,
         proposedTodoTitle: String? = nil,
-        fromEntryID: UUID? = nil
+        fromEntryID: UUID? = nil,
+        transition: String? = nil
     ) {
         self.id = UUID()
         self.createdAt = Date()
@@ -89,6 +92,7 @@ final class FocusDecision {
         self.proposedCustomerName = proposedCustomerName
         self.proposedTodoTitle = proposedTodoTitle
         self.fromEntryID = fromEntryID
+        self.transition = transition
     }
 
     var kind: FocusDecisionKind {
