@@ -9,6 +9,7 @@ struct OpenAICompatibleProvider: AIProvider {
     let baseURL: URL     // e.g. https://api.openai.com/v1
     let model: String
     let apiKey: String
+    var session: URLSession = .shared
 
     func complete(system: String, user: String, maxTokens: Int) async throws -> String {
         let url = baseURL.appendingPathComponent("chat/completions")
@@ -31,20 +32,22 @@ struct OpenAICompatibleProvider: AIProvider {
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let t0 = Date()
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let (data, http) = try await AIHTTP.send(req, session: session, label: "oai")
         let latencyMs = Int(Date().timeIntervalSince(t0) * 1000)
-        let http = resp as? HTTPURLResponse
-        let status = http?.statusCode ?? 0
+        let status = http.statusCode
         if status != 200 {
-            let bodyText = String(data: data, encoding: .utf8) ?? ""
+            let excerpt = AIHTTP.excerpt(data)
             AppLogger.ai.error("oai \(url.host ?? "") status=\(status)")
-            AppLogger.log("ai", level: .error, "oai host=\(url.host ?? "") status=\(status) body=\(bodyText.prefix(200))")
-            throw AIError.badStatus(status, bodyText)
+            AppLogger.log("ai", level: .error, "oai host=\(url.host ?? "") status=\(status)")
+            throw AIError.badStatus(status, excerpt)
         }
-        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        let choices = (json?["choices"] as? [[String: Any]]) ?? []
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw AIError.parseFailed("response is not a JSON object")
+        }
+        let choices = (json["choices"] as? [[String: Any]]) ?? []
         let message = choices.first?["message"] as? [String: Any]
         let text = message?["content"] as? String ?? ""
+        if choices.first?["finish_reason"] as? String == "length" { throw AIError.truncated }
         guard !text.isEmpty else {
             AppLogger.ai.error("oai \(url.host ?? "") empty response")
             throw AIError.emptyResponse

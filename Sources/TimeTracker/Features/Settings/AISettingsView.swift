@@ -12,6 +12,10 @@ struct AISettingsView: View {
             detail
                 .frame(minWidth: 380)
         }
+        // Save as edits happen: the background services read the store, and a quit
+        // with Settings open used to lose every change.
+        .onChange(of: providers) { _, _ in persist() }
+        .onChange(of: fields) { _, _ in persist() }
         .onDisappear(perform: persist)
     }
 
@@ -129,33 +133,8 @@ struct AISettingsView: View {
     }
 
     private func apiKeyField(for id: UUID) -> some View {
-        let key = AISettingsStore.keychainKey(for: id)
-        let current = KeychainStore.get(key) ?? ""
-        return HStack {
-            SecureField("API key token", text: .constant(current))
-                .disabled(true)
-            Button(current.isEmpty ? "Set..." : "Replace...") {
-                promptForKey(key: key)
-            }
-            if !current.isEmpty {
-                Button("Clear") { KeychainStore.delete(key) }
-            }
-        }
-    }
-
-    private func promptForKey(key: String) {
-        let alert = NSAlert()
-        alert.messageText = "Enter API key"
-        alert.informativeText = "Stored securely in macOS Keychain."
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Cancel")
-        let input = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-        input.placeholderString = "sk-..."
-        alert.accessoryView = input
-        if alert.runModal() == .alertFirstButtonReturn {
-            let value = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !value.isEmpty { KeychainStore.set(value, for: key) }
-        }
+        APIKeyRow(key: AISettingsStore.keychainKey(for: id))
+            .id(id)
     }
 
     private func test(provider config: AIProviderConfig) async {
@@ -227,5 +206,50 @@ struct AISettingsView: View {
     private func persist() {
         AISettingsStore.saveProviders(providers)
         AISettingsStore.saveContextFields(fields)
+    }
+}
+
+/// Shows whether a key is stored, without ever reading the secret into the view.
+///
+/// It used to read the key from the Keychain on every render into a `.constant`
+/// binding, and since that value was not state, Set/Clear did not refresh the buttons.
+private struct APIKeyRow: View {
+    let key: String
+    @State private var hasKey = false
+    @State private var saveFailed = false
+
+    var body: some View {
+        HStack {
+            Text(hasKey ? "Key stored in Keychain" : "No key set")
+                .foregroundStyle(hasKey ? .primary : .secondary)
+            Spacer()
+            Button(hasKey ? "Replace..." : "Set...") { promptForKey() }
+            if hasKey {
+                Button("Clear") {
+                    KeychainStore.delete(key)
+                    hasKey = KeychainStore.contains(key)
+                }
+            }
+        }
+        .onAppear { hasKey = KeychainStore.contains(key) }
+        .alert("Could not save the key to the Keychain", isPresented: $saveFailed) {
+            Button("OK", role: .cancel) {}
+        }
+    }
+
+    private func promptForKey() {
+        let alert = NSAlert()
+        alert.messageText = "Enter API key"
+        alert.informativeText = "Stored securely in macOS Keychain."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        let input = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+        input.placeholderString = "sk-..."
+        alert.accessoryView = input
+        if alert.runModal() == .alertFirstButtonReturn {
+            let value = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty { saveFailed = !KeychainStore.set(value, for: key) }
+        }
+        hasKey = KeychainStore.contains(key)
     }
 }

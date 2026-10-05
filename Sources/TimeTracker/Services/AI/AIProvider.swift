@@ -46,10 +46,15 @@ protocol AIProvider {
 }
 
 extension AIProvider {
+    /// A ceiling, not a target. The answer is a small JSON object, but on models that
+    /// think, the thinking counts against `max_tokens`; 512 regularly left nothing for
+    /// the answer itself.
+    static var answerTokenCeiling: Int { 4096 }
+
     /// Classify a window of activity. The original question, unchanged.
     func draft(_ context: SuggestionContext) async throws -> EntryDraft {
         let (system, user) = PromptBuilder.build(context: context)
-        let text = try await complete(system: system, user: user, maxTokens: 512)
+        let text = try await complete(system: system, user: user, maxTokens: Self.answerTokenCeiling)
         return try DraftParser.parse(text, context: context, providerLabel: displayName)
     }
 
@@ -57,7 +62,7 @@ extension AIProvider {
     /// and if so exactly when?
     func decideBoundary(_ context: BoundaryContext) async throws -> BoundaryVerdict {
         let (system, user) = BoundaryPromptBuilder.build(context: context)
-        let text = try await complete(system: system, user: user, maxTokens: 512)
+        let text = try await complete(system: system, user: user, maxTokens: Self.answerTokenCeiling)
         return try BoundaryParser.parse(text, context: context, providerLabel: displayName)
     }
 }
@@ -77,6 +82,10 @@ enum AIError: LocalizedError {
     case badStatus(Int, String)
     case emptyResponse
     case parseFailed(String)
+    /// The model declined (a safety classifier), with its category if given.
+    case refused(String?)
+    /// The answer hit `max_tokens` before it was complete.
+    case truncated
 
     var errorDescription: String? {
         switch self {
@@ -84,6 +93,8 @@ enum AIError: LocalizedError {
         case .badStatus(let code, let body): return "AI provider returned HTTP \(code): \(body)"
         case .emptyResponse: return "AI provider returned an empty response."
         case .parseFailed(let s): return "Could not parse AI response: \(s)"
+        case .refused(let category): return "The model declined to answer\(category.map { " (\($0))" } ?? "")."
+        case .truncated: return "The AI response was cut off before it was complete."
         }
     }
 }

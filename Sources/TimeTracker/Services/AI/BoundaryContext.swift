@@ -34,6 +34,9 @@ struct BoundaryContext {
     /// The window `boundary_at` must fall inside; anything else is a hallucination.
     let earliestAllowed: Date
     let latestAllowed: Date
+    /// The user's choices in Settings → AI about what may leave the Mac. Applies to
+    /// this prompt exactly as it does to the draft prompt.
+    var fields = ContextFieldSelection()
 }
 
 /// A past proposal and what the user actually wanted — the material that teaches the

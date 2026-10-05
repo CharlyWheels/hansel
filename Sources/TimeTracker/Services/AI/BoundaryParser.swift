@@ -50,9 +50,15 @@ enum BoundaryParser {
     /// a fabricated boundary hours in the past would silently rewrite a whole day. An
     /// unparseable or out-of-range answer falls back to the segmenter's own instant,
     /// which is always defensible because it came from observed evidence.
+    ///
+    /// Out-of-range is not clamped to the nearest edge: an answer outside the window
+    /// is usually a time-zone mix-up (local time labelled UTC), and the edge — often
+    /// "now" — is no better a guess than the evidence the segmenter already had.
     private static func clampBoundary(_ raw: String?, context: BoundaryContext) -> Date {
-        guard let raw, let parsed = parseDate(raw) else { return context.boundaryAt }
-        return min(max(parsed, context.earliestAllowed), context.latestAllowed)
+        guard let raw, let parsed = parseDate(raw),
+              parsed >= context.earliestAllowed, parsed <= context.latestAllowed
+        else { return context.boundaryAt }
+        return parsed
     }
 
     private static func parseDate(_ raw: String) -> Date? {
@@ -60,16 +66,14 @@ enum BoundaryParser {
         guard !trimmed.isEmpty, trimmed.lowercased() != "null" else { return nil }
         if let date = isoWithFractional.date(from: trimmed) { return date }
         if let date = iso.date(from: trimmed) { return date }
-        return nil
+        // No zone at all: the prompt speaks local time, so read it as local.
+        return localNoZone.date(from: trimmed)
     }
 
-    /// Takes the outermost brace pair. Models wrap JSON in prose and fences often
-    /// enough that being lenient here is worth more than being strict.
+    /// Models wrap JSON in prose and fences often enough that being lenient here is
+    /// worth more than being strict.
     private static func extractJSON(from text: String) -> String {
-        guard let open = text.firstIndex(of: "{"),
-              let close = text.lastIndex(of: "}"),
-              open < close else { return text }
-        return String(text[open...close])
+        PromptText.firstJSONObject(in: text) ?? text
     }
 
     private static func nonEmpty(_ value: String?) -> String? {
@@ -82,6 +86,14 @@ enum BoundaryParser {
     private static let iso: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
+    private static let localNoZone: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = .current
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
         return f
     }()
 

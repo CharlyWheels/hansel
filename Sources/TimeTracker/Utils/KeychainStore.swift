@@ -5,20 +5,40 @@ import Security
 enum KeychainStore {
     private static let service = "com.carlosrueda.timetracker"
 
-    static func set(_ value: String, for key: String) {
+    /// Stores `value`, updating in place when the item exists.
+    ///
+    /// The old version deleted first and then added, so a failed add (locked keychain,
+    /// access denied) silently lost the existing key. Returns whether it was stored.
+    @discardableResult
+    static func set(_ value: String, for key: String) -> Bool {
         let data = Data(value.utf8)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key
         ]
-        SecItemDelete(query as CFDictionary)
-        var attrs = query
-        attrs[kSecValueData as String] = data
-        let status = SecItemAdd(attrs as CFDictionary, nil)
+        var status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if status == errSecItemNotFound {
+            var attrs = query
+            attrs[kSecValueData as String] = data
+            status = SecItemAdd(attrs as CFDictionary, nil)
+        }
         if status != errSecSuccess {
             AppLogger.persistence.error("Keychain set failed key=\(key, privacy: .public) status=\(status)")
+            AppLogger.log("persistence", level: .error, "keychain_set_failed status=\(status)")
         }
+        return status == errSecSuccess
+    }
+
+    /// Whether a value exists, without reading the secret itself.
+    static func contains(_ key: String) -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
     }
 
     static func get(_ key: String) -> String? {
@@ -31,6 +51,11 @@ enum KeychainStore {
         ]
         var out: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &out)
+        if status != errSecSuccess && status != errSecItemNotFound {
+            // Distinguish "no key" from "could not read it" in the logs at least;
+            // both still read as "not configured" to callers.
+            AppLogger.log("persistence", level: .error, "keychain_get_failed status=\(status)")
+        }
         guard status == errSecSuccess, let data = out as? Data else { return nil }
         return String(data: data, encoding: .utf8)
     }

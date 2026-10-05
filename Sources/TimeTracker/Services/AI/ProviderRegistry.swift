@@ -17,7 +17,7 @@ struct AIProviderConfig: Codable, Identifiable, Equatable, Hashable {
     var name: String            // user label, e.g. "Claude Opus"
     var kind: Kind
     var baseURL: String?        // required for openAICompatible
-    var model: String           // e.g. "claude-opus-4-7", "gpt-4o-mini", "moonshot-v1-32k"
+    var model: String           // e.g. "claude-opus-5-5", "gpt-4o-mini", "moonshot-v1-32k"
     var isDefault: Bool
 
     init(
@@ -37,7 +37,7 @@ struct AIProviderConfig: Codable, Identifiable, Equatable, Hashable {
     }
 
     static let presets: [AIProviderConfig] = [
-        AIProviderConfig(name: "Claude", kind: .anthropic, model: "claude-opus-5"),
+        AIProviderConfig(name: "Claude", kind: .anthropic, model: "claude-opus-5-5"),
         AIProviderConfig(name: "OpenAI GPT", kind: .openAICompatible, baseURL: "https://api.openai.com/v1", model: "gpt-4o-mini"),
         AIProviderConfig(name: "Kimi (Moonshot)", kind: .openAICompatible, baseURL: "https://api.moonshot.cn/v1", model: "moonshot-v1-32k"),
         AIProviderConfig(name: "Local (Ollama)", kind: .openAICompatible, baseURL: "http://localhost:11434/v1", model: "xiaomi-mimo")

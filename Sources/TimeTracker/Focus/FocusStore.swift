@@ -126,7 +126,8 @@ final class FocusStore {
                 candidate.at.addingTimeInterval(-600),
                 (currentEntry()?.startAt ?? candidate.at).addingTimeInterval(180)
             ),
-            latestAllowed: now
+            latestAllowed: now,
+            fields: AISettingsStore.loadContextFields()
         )
     }
 

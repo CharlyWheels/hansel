@@ -45,22 +45,38 @@ final class BoundaryParserTests: XCTestCase {
                        boundary.timeIntervalSince1970, accuracy: 1)
     }
 
-    func test_hallucinatedTimestampIsClampedIntoTheAllowedWindow() throws {
+    func test_hallucinatedTimestampFallsBackToTheSegmentersInstant() throws {
         // A boundary three hours in the past would silently rewrite the whole day.
         let verdict = try parse("""
         {"same_task": false, "boundary_at": "2001-01-01T09:00:00Z",
          "title": "Something", "confidence": 0.9}
         """)
-        let applied = try XCTUnwrap(verdict.boundaryAt)
-        XCTAssertGreaterThanOrEqual(applied, boundary.addingTimeInterval(-600))
-        XCTAssertLessThanOrEqual(applied, now)
+        XCTAssertEqual(verdict.boundaryAt, boundary)
     }
 
-    func test_futureTimestampIsClampedToNow() throws {
+    func test_futureTimestampFallsBackInsteadOfSnappingToNow() throws {
+        // Typically local time labelled as UTC: hours "ahead". "Now" is no better a
+        // guess than the observed boundary.
         let verdict = try parse("""
         {"same_task": false, "boundary_at": "2099-01-01T09:00:00Z", "title": "X", "confidence": 0.5}
         """)
-        XCTAssertEqual(verdict.boundaryAt, now)
+        XCTAssertEqual(verdict.boundaryAt, boundary)
+    }
+
+    func test_refinementInsideTheWindowIsKept() throws {
+        let refined = boundary.addingTimeInterval(-120)
+        let verdict = try parse("""
+        {"same_task": false, "boundary_at": "\(PromptText.localISO(refined))", "title": "X", "confidence": 0.5}
+        """)
+        XCTAssertEqual(verdict.boundaryAt, refined)
+    }
+
+    func test_braceInTrailingProseDoesNotBreakParsing() throws {
+        let verdict = try parse("""
+        {"same_task": false, "title": "Globex {migration}", "confidence": 0.5}
+        Note: {this} is extra.
+        """)
+        XCTAssertEqual(verdict.title, "Globex {migration}")
     }
 
     func test_unparseableTimestampFallsBackToTheSegmentersInstant() throws {

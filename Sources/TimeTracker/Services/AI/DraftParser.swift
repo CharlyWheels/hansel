@@ -22,12 +22,14 @@ enum DraftParser {
         } catch {
             throw AIError.parseFailed(body)
         }
+        let title = parsed.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { throw AIError.parseFailed("empty title") }
         let role = resolveRole(parsed.role, in: context)
         let project = resolveProject(parsed.project, in: context)
         let customer = resolveCustomer(parsed.customer, in: context) ?? project?.customer
         let todo = resolveTodo(parsed.todo, in: context)
         return EntryDraft(
-            title: parsed.title,
+            title: title,
             role: role,
             project: project,
             customer: customer,
@@ -38,10 +40,7 @@ enum DraftParser {
     }
 
     private static func extractJSON(from s: String) -> String {
-        guard let open = s.firstIndex(of: "{"),
-              let close = s.lastIndex(of: "}"),
-              open < close else { return s }
-        return String(s[open...close])
+        PromptText.firstJSONObject(in: s) ?? s
     }
 
     private static func resolveRole(_ name: String?, in ctx: SuggestionContext) -> Role? {
