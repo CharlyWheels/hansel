@@ -14,6 +14,9 @@ final class ActivityWatchdog {
     private var pendingDraft: Task<Void, Never>?
     /// Told about every model call, so it counts against the shared budget.
     var onModelCall: (() -> Void)?
+    /// Title of a meeting the user is attending right now, if any. Drafts were made
+    /// without it, so "in the Acme sync" had to be guessed from window titles.
+    var currentMeetingTitle: (() -> String?)?
 
     init(
         timerController: TimerController,
@@ -81,7 +84,9 @@ final class ActivityWatchdog {
         guard let controller = timerController, !controller.isRunning else { return }
         do {
             onModelCall?()
-            let draft = try await suggestionEngine.draft(from: from, to: Date())
+            let draft = try await suggestionEngine.draft(
+                from: from, to: Date(), calendarEventTitle: currentMeetingTitle?()
+            )
             // The model call can take a while; the world may have moved meanwhile.
             guard !Task.isCancelled, !controller.isRunning, idleMonitor?.isIdle != true else {
                 AppLogger.log("timer", level: .info, "watchdog_draft_discarded")

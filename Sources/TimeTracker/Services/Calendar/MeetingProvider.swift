@@ -103,6 +103,16 @@ final class MeetingProvider {
         }
     }
 
+    /// The trustworthy meeting in progress that started most recently, if any.
+    func currentMeeting(at now: Date = Date()) -> MeetingWindow? {
+        meetings(from: now, to: now)
+            .filter {
+                $0.start <= now && now < $0.end
+                    && AttendanceFilter.allowsColdStart($0, allowedCalendarIds: allowedCalendarIds)
+            }
+            .max { $0.start < $1.start }
+    }
+
     /// The calendars available to choose from, for the Settings allow-list.
     func availableCalendars() -> [(id: String, title: String)] {
         guard Permissions.calendarStatus() == .granted else { return [] }

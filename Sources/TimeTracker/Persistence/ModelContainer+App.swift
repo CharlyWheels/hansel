@@ -31,6 +31,7 @@ enum AppModelContainer {
             let container = try makeContainer(schema: schema, url: url)
             AppLogger.persistence.info("ModelContainer initialised at \(url.path, privacy: .public)")
             seedDefaultsIfEmpty(container: container)
+            DataMaintenance.runPending(context: container.mainContext)
             return container
         } catch {
             // A failed migration used to hit `fatalError` here, leaving the app
@@ -46,6 +47,7 @@ enum AppModelContainer {
                 AppLogger.persistence.notice("Recovered with a fresh store; previous store moved to \(moved ?? "-", privacy: .public)")
                 AppLogger.log("persistence", level: .notice, "container_recovered moved=\(moved ?? "-")")
                 seedDefaultsIfEmpty(container: container)
+                DataMaintenance.runPending(context: container.mainContext)
                 return container
             } catch {
                 AppLogger.persistence.error("Recovery failed: \(error.localizedDescription, privacy: .public)")

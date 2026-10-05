@@ -124,6 +124,7 @@ struct TimeTrackerApp: App {
         let focusArbiter = FocusArbiter(dependencies: deps, budget: LLMBudget.loadPersisted())
         // The watchdog's drafts come out of the same daily allowance.
         watch.onModelCall = { [weak focusArbiter] in focusArbiter?.noteExternalModelCall() }
+        watch.currentMeetingTitle = { [weak meetings] in meetings?.currentMeeting()?.title }
         prompts.onResolved = { [weak focusArbiter] in focusArbiter?.userResponded() }
 
         _controller = State(wrappedValue: ctrl)

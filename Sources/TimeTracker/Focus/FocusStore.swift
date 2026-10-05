@@ -221,6 +221,28 @@ final class FocusStore {
     }
 
     /// Resolves the model's catalog names back to objects for a switch.
+    /// The todo a short id ("T2") refers to *now*. Resolve it as soon as the model
+    /// answers: the ids are positions in the current list, so resolving them minutes
+    /// later, after the list changed, could link a different todo.
+    func todoID(forKey key: String?) -> UUID? {
+        let todos = (try? modelContext.fetch(FetchDescriptor<Todo>(
+            predicate: #Predicate { $0.isCompleted == false },
+            sortBy: [SortDescriptor(\Todo.sortOrder), SortDescriptor(\Todo.createdAt)]
+        ))) ?? []
+        return resolveTodo(key, roots: todos.filter { $0.parent == nil })?.id
+    }
+
+    /// Builds the entry for an accepted proposal, using a todo resolved earlier.
+    func plan(from proposal: FocusPolicy.Proposal, todoID: UUID?) -> TimerController.EntryPlan {
+        var plan = plan(from: proposal)
+        plan.todo = todoID.flatMap { id in
+            try? modelContext.fetch(FetchDescriptor<Todo>(
+                predicate: #Predicate<Todo> { $0.id == id }
+            )).first
+        }
+        return plan
+    }
+
     func plan(from proposal: FocusPolicy.Proposal) -> TimerController.EntryPlan {
         let roles = (try? modelContext.fetch(FetchDescriptor<Role>())) ?? []
         let projects = (try? modelContext.fetch(FetchDescriptor<Project>())) ?? []

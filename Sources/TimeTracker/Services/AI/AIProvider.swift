@@ -54,7 +54,7 @@ extension AIProvider {
     /// Classify a window of activity. The original question, unchanged.
     func draft(_ context: SuggestionContext) async throws -> EntryDraft {
         let (system, user) = PromptBuilder.build(context: context)
-        let text = try await complete(system: system, user: user, maxTokens: Self.answerTokenCeiling)
+        let text = try await inspectedComplete(kind: .draft, system: system, user: user)
         return try DraftParser.parse(text, context: context, providerLabel: displayName)
     }
 
@@ -62,7 +62,7 @@ extension AIProvider {
     /// and if so exactly when?
     func decideBoundary(_ context: BoundaryContext) async throws -> BoundaryVerdict {
         let (system, user) = BoundaryPromptBuilder.build(context: context)
-        let text = try await complete(system: system, user: user, maxTokens: Self.answerTokenCeiling)
+        let text = try await inspectedComplete(kind: .boundary, system: system, user: user)
         return try BoundaryParser.parse(text, context: context, providerLabel: displayName)
     }
 }

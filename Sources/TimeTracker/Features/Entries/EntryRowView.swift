@@ -25,6 +25,13 @@ struct EntryRowView: View {
                         Text("· \(role.name)").font(.caption).foregroundStyle(.secondary)
                     }
                     sourceBadge(entry.source)
+                    if entry.needsReview {
+                        // Unreviewed entries are not used as examples for the model.
+                        Image(systemName: "questionmark.circle")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                            .help("Not reviewed. Mark it as correct so the model learns from it.")
+                    }
                 }
             }
             Spacer()

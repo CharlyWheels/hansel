@@ -31,6 +31,9 @@ struct EntryListView: View {
                                     .onTapGesture { editingEntry = entry }
                                     .contextMenu {
                                         Button("Edit") { editingEntry = entry }
+                                        if entry.needsReview {
+                                            Button("Mark as correct") { confirm([entry]) }
+                                        }
                                         Divider()
                                         Button("Delete", role: .destructive) {
                                             modelContext.delete(entry)
@@ -135,14 +138,27 @@ struct EntryListView: View {
         let billable = group.entries
             .filter { $0.billableCached }
             .reduce(0) { $0 + ($1.duration ?? 0) }
+        let unreviewed = group.entries.filter(\.needsReview)
         return HStack {
             Text(group.date.formatted(.dateTime.weekday(.wide).month().day()))
                 .font(.headline)
             Spacer()
+            if !unreviewed.isEmpty {
+                Button("Confirm \(unreviewed.count)") { confirm(unreviewed) }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .help("Mark this day's unreviewed entries as correct, so the model uses them as examples.")
+            }
             Text("\(DurationFormat.hoursMinutes(total)) · \(DurationFormat.hoursMinutes(billable)) billable")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// Vouching for an entry makes it a classification example in every prompt.
+    private func confirm(_ entries: [TimeEntry]) {
+        for entry in entries { entry.isHumanConfirmed = true }
+        try? modelContext.save()
     }
 
     private func delete(from entries: [TimeEntry], offsets: IndexSet) {

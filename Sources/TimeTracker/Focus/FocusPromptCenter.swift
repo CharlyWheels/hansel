@@ -29,6 +29,8 @@ final class FocusPromptCenter {
         let createdAt: Date
         /// The running entry was too young to split, so accepting rewrites it.
         let isCorrection: Bool
+        /// The proposed todo, resolved when the question was raised.
+        var todoID: UUID? = nil
 
         var proposedTitle: String { proposal.title ?? "" }
         var hasLabel: Bool { proposal.hasLabel }
@@ -126,7 +128,8 @@ final class FocusPromptCenter {
             previousTitle: previousTitle,
             fromEntryID: fromEntryID,
             createdAt: Date(),
-            isCorrection: isCorrection
+            isCorrection: isCorrection,
+            todoID: store.todoID(forKey: proposal.todo)
         )
         timerController?.beginConfirming()
     }
@@ -156,7 +159,7 @@ final class FocusPromptCenter {
     /// "Switch" — boundary and label both right.
     func applySwitch() {
         guard let pending, let controller = timerController else { return }
-        let plan = store.plan(from: pending.proposal)
+        let plan = store.plan(from: pending.proposal, todoID: pending.todoID)
         apply(plan, pending: pending, controller: controller, response: .switched)
     }
 
@@ -164,7 +167,7 @@ final class FocusPromptCenter {
     /// applied so no time is misattributed, then the entry is opened for editing.
     func switchAndEdit() {
         guard let pending, let controller = timerController else { return }
-        let plan = store.plan(from: pending.proposal)
+        let plan = store.plan(from: pending.proposal, todoID: pending.todoID)
         apply(plan, pending: pending, controller: controller, response: .switchedEdited)
         if let entry = controller.runningEntry { entryToEdit = entry }
     }

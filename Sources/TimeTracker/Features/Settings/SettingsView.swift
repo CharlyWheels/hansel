@@ -214,8 +214,38 @@ struct PermissionsSettingsView: View {
 }
 
 struct DebugSettingsView: View {
+    @State private var inspector = PromptInspector.shared
+    @State private var kind: PromptInspector.Kind = .boundary
+
     var body: some View {
         Form {
+            Section("Last prompt sent to the model") {
+                Picker("Prompt", selection: $kind) {
+                    ForEach(PromptInspector.Kind.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                if let record = inspector.records[kind] {
+                    LabeledContent("Sent", value: "\(record.at.formatted(date: .abbreviated, time: .standard)) · \(record.provider)")
+                    promptText(record.user)
+                    if let response = record.response {
+                        LabeledContent("Response") { EmptyView() }
+                        promptText(response)
+                    }
+                    if let error = record.error {
+                        Text(error).font(.caption).foregroundStyle(.red)
+                    }
+                    Button("Copy prompt and response") {
+                        let text = "SYSTEM:\n\(record.system)\n\nUSER:\n\(record.user)\n\nRESPONSE:\n\(record.response ?? record.error ?? "")"
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
+                    }
+                } else {
+                    Text("Nothing sent since Hansel started.")
+                        .foregroundStyle(.secondary)
+                }
+                Text("Kept in memory only, never written to disk.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Logs") {
                 LabeledContent("Location") {
                     Text(FileLogSink.currentLogDirectory.path)
@@ -230,5 +260,15 @@ struct DebugSettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func promptText(_ text: String) -> some View {
+        ScrollView {
+            Text(text)
+                .font(.caption.monospaced())
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(height: 180)
     }
 }
