@@ -7,6 +7,9 @@ final class Customer {
     var name: String
     var defaultBillable: Bool
     var createdAt: Date
+    /// Comma-separated email domains of the customer's people (e.g. "acme.com"), so a
+    /// meeting with them is attributed to this customer.
+    var emailDomains: String = ""
 
     /// Deleting a customer keeps its projects (they become customer-less) rather than
     /// silently deleting them and the attribution of every past entry with them.

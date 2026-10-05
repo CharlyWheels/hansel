@@ -85,4 +85,11 @@ final class PromptPrivacyTests: XCTestCase {
         let boundary = provider.requestBody(system: "s", user: "u", maxTokens: 4096, effort: .medium)
         XCTAssertEqual((boundary["output_config"] as? [String: String])?["effort"], "medium")
     }
+
+    func test_projectDescriptionsReachTheModel() {
+        let project = Project(name: "Data stuff")
+        project.details = "Retail store classification model; repo store-ml"
+        XCTAssertEqual(PromptBuilder.describeProject(project),
+                       "\"Data stuff\" — Retail store classification model; repo store-ml")
+    }
 }

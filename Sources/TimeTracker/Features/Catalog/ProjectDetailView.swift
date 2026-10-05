@@ -20,6 +20,13 @@ struct ProjectDetailView: View {
                     .onChange(of: project.defaultBillable) { _, _ in refreshCaches() }
                 colorPickerRow
             }
+            Section("Description") {
+                TextField("What is this project? Client, repos, keywords…", text: $project.details, axis: .vertical)
+                    .lineLimit(2...5)
+                    .onSubmit { try? modelContext.save() }
+                Text("Sent to the AI with the project list, so it can tell your projects apart.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section {
                 RulesSection(
                     rules: project.rules,
@@ -32,6 +39,7 @@ struct ProjectDetailView: View {
         .formStyle(.grouped)
         .navigationTitle(project.name.isEmpty ? "Project" : project.name)
         .onChange(of: project.name) { _, _ in try? modelContext.save() }
+        .onChange(of: project.details) { _, _ in try? modelContext.save() }
         .sheet(item: $editingRule) { rule in
             RuleEditorView(rule: rule)
         }

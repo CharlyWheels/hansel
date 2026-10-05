@@ -12,6 +12,9 @@ final class Project {
     /// User-chosen color as 6-char hex (RRGGBB). When nil, falls back to a deterministic
     /// hue hashed from the project name.
     var colorHex: String?
+    /// What the project is about, in the user's words: client, repos, keywords. Sent to
+    /// the model with the catalog, so "Data stuff" is not a name it has to guess at.
+    var details: String = ""
 
     @Relationship(deleteRule: .cascade, inverse: \ClassificationRule.targetProject)
     var rules: [ClassificationRule] = []

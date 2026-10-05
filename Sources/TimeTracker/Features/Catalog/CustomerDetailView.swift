@@ -14,6 +14,11 @@ struct CustomerDetailView: View {
                 Toggle("Billable by default", isOn: $customer.defaultBillable)
                     .onChange(of: customer.defaultBillable) { _, _ in refreshCaches() }
             }
+            Section("Email domains") {
+                TextField("acme.com, acme.co.uk", text: $customer.emailDomains)
+                Text("Meetings with people from these domains are attributed to this customer.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section {
                 RulesSection(
                     rules: customer.rules,
@@ -26,6 +31,7 @@ struct CustomerDetailView: View {
         .formStyle(.grouped)
         .navigationTitle(customer.name.isEmpty ? "Customer" : customer.name)
         .onChange(of: customer.name) { _, _ in try? modelContext.save() }
+        .onChange(of: customer.emailDomains) { _, _ in try? modelContext.save() }
         .sheet(item: $editingRule) { rule in
             RuleEditorView(rule: rule)
         }

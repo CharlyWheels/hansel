@@ -87,7 +87,7 @@ enum PromptBuilder {
         if context.fields.includeCatalog {
             lines.append("\nCatalog:")
             let roleList = context.roles.map { "\"\($0.name)\"" }.joined(separator: ", ")
-            let projectList = context.projects.map(describeProject).joined(separator: ", ")
+            let projectList = context.projects.map { "\n- " + describeProject($0) }.joined()
             let customerList = context.customers.map { "\"\($0.name)\"" }.joined(separator: ", ")
             lines.append("Roles: \(roleList)")
             lines.append("Projects: \(projectList)")
@@ -156,12 +156,13 @@ enum PromptBuilder {
         return f
     }()
 
-    private static func describeProject(_ p: Project) -> String {
-        if let customer = p.customer {
-            return "\"\(p.name)\" (customer: \(customer.name))"
-        } else {
-            return "\"\(p.name)\""
-        }
+    /// One catalog line per project, with the user's description when there is one.
+    static func describeProject(_ p: Project) -> String {
+        var line = "\"\(p.name)\""
+        if let customer = p.customer { line += " (customer: \(customer.name))" }
+        let details = p.details.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !details.isEmpty { line += " — \(PromptText.untrusted(details))" }
+        return line
     }
 }
 

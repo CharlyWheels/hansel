@@ -105,7 +105,7 @@ enum BoundaryPromptBuilder {
         if fields.includeCatalog {
             lines.append("\nCatalog:")
             lines.append("Roles: \(context.roles.map { "\"\($0.name)\"" }.joined(separator: ", "))")
-            lines.append("Projects: \(context.projects.map(describeProject).joined(separator: ", "))")
+            lines.append("Projects:" + context.projects.map { "\n- " + PromptBuilder.describeProject($0) }.joined())
             lines.append("Customers: \(context.customers.map { "\"\($0.name)\"" }.joined(separator: ", "))")
         } else {
             lines.append("\nNo catalog is shared: answer null for role, project and customer.")
@@ -180,13 +180,6 @@ enum BoundaryPromptBuilder {
             if sample.flags.inCall { line += " (call signals active)" }
             return line
         }
-    }
-
-    private static func describeProject(_ project: Project) -> String {
-        if let customer = project.customer {
-            return "\"\(project.name)\" (customer: \(customer.name))"
-        }
-        return "\"\(project.name)\""
     }
 
     private static let time: DateFormatter = {
