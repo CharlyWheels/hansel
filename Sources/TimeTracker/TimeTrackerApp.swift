@@ -120,6 +120,17 @@ struct TimeTrackerApp: App {
         deps.suppressedTransitions = { [weak store] in store?.suppressedTransitions() ?? [] }
 
         deps.persistBudget = { $0.persist() }
+        deps.joinedMeeting = { [weak meeting, weak meetings] in
+            guard UserDefaults.standard.object(forKey: "autoSwitchOnMeetingJoin") as? Bool ?? true,
+                  let state = meeting?.state, state.isInMeeting,
+                  let current = meetings?.currentMeeting() else { return nil }
+            return (current, state.since ?? Date())
+        }
+        deps.labelsForMeeting = { [weak ctx] title in
+            guard let ctx else { return (nil, nil, nil) }
+            let (role, project, customer) = CalendarService.classify(title: title, context: ctx)
+            return (role?.name, project?.name, customer?.name)
+        }
 
         let focusArbiter = FocusArbiter(dependencies: deps, budget: LLMBudget.loadPersisted())
         // The watchdog's drafts come out of the same daily allowance.

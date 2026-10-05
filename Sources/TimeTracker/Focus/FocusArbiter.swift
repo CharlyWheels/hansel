@@ -42,6 +42,12 @@ final class FocusArbiter {
         var record: (FocusDecision) -> Void
         /// Saves the budget after each call, so the daily ceiling survives a relaunch.
         var persistBudget: (LLMBudget) -> Void = { _ in }
+        /// A calendar meeting the user has visibly joined (microphone on while a
+        /// trustworthy event is in progress), with when the call began. Nil when not in
+        /// one, or when the user turned automatic meeting switches off.
+        var joinedMeeting: () -> (meeting: MeetingWindow, since: Date)? = { nil }
+        /// Role / project / customer names learned from past entries with this title.
+        var labelsForMeeting: (String) -> (role: String?, project: String?, customer: String?) = { _ in (nil, nil, nil) }
     }
 
     enum Phase: Equatable {
@@ -68,6 +74,8 @@ final class FocusArbiter {
     private var handledCandidates: [String: Date] = [:]
     /// Suppressions already logged, so a stuck candidate writes one row, not one per tick.
     private var loggedSuppressions: Set<String> = []
+    /// Meetings already switched to (or found already tracked), so an undo sticks.
+    private var handledMeetingJoins: Set<String> = []
     private var recentPromptTimes: [Date] = []
     private var pollTimer: Timer?
 
@@ -101,6 +109,15 @@ final class FocusArbiter {
     func tick() async {
         let now = deps.now()
         let config = settings()
+
+        // 0. Joining a calendar meeting is the one switch made without asking. The
+        //    evidence is unambiguous — the event is on the calendar and the microphone
+        //    is on — and the user asked for it. It stays undoable from the menu. It
+        //    runs before the idle check: listening on a call is not being away.
+        if phase != .consulting, let entry = deps.currentEntry(),
+           switchToJoinedMeetingIfNeeded(entry: entry, now: now) {
+            return
+        }
 
         // 1. Nothing is worth doing while the user is away. Idle never ends an entry:
         //    the user always stops the timer, and `EntryCompletionService` asks about
@@ -277,6 +294,64 @@ final class FocusArbiter {
     func noteExternalModelCall(at now: Date = Date()) {
         budget.record(at: now)
         deps.persistBudget(budget)
+    }
+
+    // MARK: - Meeting join
+
+    private func switchToJoinedMeetingIfNeeded(entry: EntryContext, now: Date) -> Bool {
+        guard let (meeting, since) = deps.joinedMeeting() else { return false }
+        guard !handledMeetingJoins.contains(meeting.eventId) else { return false }
+        handledMeetingJoins.insert(meeting.eventId)
+
+        // Already tracking it: started from this meeting, or the user named it.
+        if entry.title.caseInsensitiveCompare(meeting.title) == .orderedSame { return false }
+        // The user started something by hand after the meeting began: that was a
+        // deliberate choice, and overriding it is exactly what they would not want.
+        if let lastEdit = deps.lastManualEditAt(), lastEdit >= meeting.start { return false }
+
+        // The meeting began when the call did, but never before the event's start
+        // nor more than 30 minutes back.
+        let boundary = min(now, max(meeting.start, since, now.addingTimeInterval(-1800)))
+        let labels = deps.labelsForMeeting(meeting.title)
+        let proposal = FocusPolicy.Proposal(
+            boundaryAt: boundary,
+            title: meeting.title,
+            role: labels.role, project: labels.project, customer: labels.customer,
+            todo: nil,
+            confidence: 1,
+            rationale: "Joined a calendar meeting.",
+            evidence: "Microphone on during \"\(meeting.title)\""
+        )
+        let decision = FocusDecision(
+            kind: .autoSwitched,
+            bucket: "meetingJoin",
+            boundaryAt: boundary,
+            score: 1,
+            confidence: 1,
+            reasons: [.meetingStart],
+            evidence: proposal.evidence,
+            rationale: proposal.rationale,
+            previousTitle: entry.title,
+            proposedTitle: meeting.title,
+            proposedRoleName: labels.role,
+            proposedProjectName: labels.project,
+            proposedCustomerName: labels.customer,
+            fromEntryID: entry.id
+        )
+        deps.record(decision)
+        phase = .watching
+        AppLogger.log("timer", level: .info, "meeting_join_switch event=\(meeting.eventId)")
+        deps.apply(.switchTo(proposal), Self.meetingCandidate(meeting, at: boundary), decision.id)
+        return true
+    }
+
+    /// `apply` takes a candidate for logging; a meeting join has no segmenter one.
+    private static func meetingCandidate(_ meeting: MeetingWindow, at: Date) -> ContextSegmenter.BoundaryCandidate {
+        ContextSegmenter.BoundaryCandidate(
+            at: at, score: 1, reasons: [.meetingStart],
+            before: .empty, after: .empty,
+            isProvisional: false, isHard: true, meetingEventId: meeting.eventId
+        )
     }
 
     // MARK: - Degraded ask

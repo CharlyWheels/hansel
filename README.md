@@ -23,7 +23,14 @@ video-call apps, conference URLs and the calendar. An accepted meeting you are v
 not attending scores below the threshold; a declined invitation, an all-day event or a
 block that shows as "free" scores zero.
 
-Nothing is changed without asking. A switch question offers three answers — *Same task*,
+Joining a calendar meeting is the one exception: when a meeting you are attending is in
+progress and your microphone turns on, the running entry is closed and the meeting starts
+right away, from the moment the call began, with its usual project if a past entry had
+the same title. It can be undone from the menu bar for 15 minutes, and turned off in
+Settings → General → Meetings. If you started a timer by hand after the meeting began,
+Hansel leaves it alone.
+
+Everything else is asked before it changes. A switch question offers three answers — *Same task*,
 *Switch*, *Something else…* — because "the boundary was wrong" and "the boundary was right
 but the label was wrong" are different corrections, and only the second should teach the
 model a new label. Applied switches stay undoable for 15 minutes.

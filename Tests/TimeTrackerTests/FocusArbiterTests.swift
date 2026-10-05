@@ -351,4 +351,81 @@ final class FocusArbiterTests: XCTestCase {
         XCTAssertEqual(loaded.timestamps, [clock])
         XCTAssertEqual(loaded.denial(at: clock.addingTimeInterval(10), isHard: false), .spacing)
     }
+
+    // MARK: - Meeting join
+
+    private func meetingArbiter(
+        joined: (MeetingWindow, Date)?,
+        lastManualEditAt: Date? = nil,
+        entryTitle: String = "Acme API"
+    ) -> FocusArbiter {
+        var deps = FocusArbiter.Dependencies(
+            buildContext: { _ in nil },
+            consult: { [weak self] _ in
+                self?.consultCount += 1
+                throw AIError.emptyResponse
+            },
+            apply: { [weak self] action, _, _ in self?.applied.append(action) },
+            record: { [weak self] decision in self?.decisions.append(decision) }
+        )
+        let entry = EntryContext(id: UUID(), title: entryTitle, startAt: t0)
+        deps.now = { [weak self] in self?.clock ?? Date() }
+        deps.currentEntry = { entry }
+        deps.lastManualEditAt = { lastManualEditAt }
+        deps.joinedMeeting = { joined.map { (meeting: $0.0, since: $0.1) } }
+        deps.labelsForMeeting = { _ in (role: nil, project: "Globex", customer: nil) }
+        return FocusArbiter(dependencies: deps)
+    }
+
+    private func standup(startedAgo: TimeInterval) -> MeetingWindow {
+        MeetingWindow(eventId: "standup#1", title: "Daily standup",
+                      start: clock.addingTimeInterval(-startedAgo),
+                      end: clock.addingTimeInterval(1800), attendance: .accepted)
+    }
+
+    func test_joiningAMeetingSwitchesWithoutAskingOrConsulting() async {
+        let meeting = standup(startedAgo: 120)
+        let micOn = clock.addingTimeInterval(-60)
+        let arbiter = meetingArbiter(joined: (meeting, micOn))
+        await arbiter.tick()
+
+        guard case let .switchTo(proposal) = applied.first else {
+            return XCTFail("expected an automatic switch, got \(applied)")
+        }
+        XCTAssertEqual(proposal.title, "Daily standup")
+        XCTAssertEqual(proposal.project, "Globex")
+        XCTAssertEqual(proposal.boundaryAt, micOn, "the entry starts when the call did")
+        XCTAssertEqual(consultCount, 0)
+        XCTAssertEqual(decisions.last?.kind, .autoSwitched)
+    }
+
+    func test_meetingJoinHappensOnceSoAnUndoSticks() async {
+        let arbiter = meetingArbiter(joined: (standup(startedAgo: 120), clock))
+        await arbiter.tick()
+        clock = clock.addingTimeInterval(30)
+        await arbiter.tick()
+        XCTAssertEqual(applied.count, 1)
+    }
+
+    func test_manualStartAfterTheMeetingBeganIsRespected() async {
+        let arbiter = meetingArbiter(joined: (standup(startedAgo: 300), clock),
+                                     lastManualEditAt: clock.addingTimeInterval(-60))
+        await arbiter.tick()
+        XCTAssertTrue(applied.isEmpty)
+    }
+
+    func test_alreadyTrackingTheMeetingDoesNothing() async {
+        let arbiter = meetingArbiter(joined: (standup(startedAgo: 120), clock), entryTitle: "daily standup")
+        await arbiter.tick()
+        XCTAssertTrue(applied.isEmpty)
+    }
+
+    func test_joiningLateStartsAtTheCallNotTheEvent() async {
+        let meeting = standup(startedAgo: 600)
+        let micOn = clock.addingTimeInterval(-30)
+        let arbiter = meetingArbiter(joined: (meeting, micOn))
+        await arbiter.tick()
+        guard case let .switchTo(proposal) = applied.first else { return XCTFail("\(applied)") }
+        XCTAssertEqual(proposal.boundaryAt, micOn)
+    }
 }

@@ -142,6 +142,10 @@ final class CalendarService {
     /// Exact-match-or-nothing is the correct trade — a nil classification is harmless,
     /// a confidently wrong one is not.
     private func classify(title: String) -> (Role?, Project?, Customer?) {
+        Self.classify(title: title, context: modelContext)
+    }
+
+    static func classify(title: String, context modelContext: ModelContext) -> (Role?, Project?, Customer?) {
         let target = Self.normalize(title)
         guard !target.isEmpty else { return (nil, nil, nil) }
         var descriptor = FetchDescriptor<TimeEntry>(
