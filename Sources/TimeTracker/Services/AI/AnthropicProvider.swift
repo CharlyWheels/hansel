@@ -7,8 +7,7 @@ struct AnthropicProvider: AIProvider {
     let apiKey: String
     var baseURL: URL = URL(string: "https://api.anthropic.com/v1/messages")!
 
-    func draft(_ context: SuggestionContext) async throws -> EntryDraft {
-        let (system, user) = PromptBuilder.build(context: context)
+    func complete(system: String, user: String, maxTokens: Int) async throws -> String {
         var req = URLRequest(url: baseURL)
         req.httpMethod = "POST"
         req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
@@ -16,7 +15,7 @@ struct AnthropicProvider: AIProvider {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let body: [String: Any] = [
             "model": model,
-            "max_tokens": 512,
+            "max_tokens": maxTokens,
             "system": system,
             "messages": [["role": "user", "content": user]]
         ]
@@ -42,6 +41,6 @@ struct AnthropicProvider: AIProvider {
         }
         AppLogger.ai.info("anthropic ok model=\(model, privacy: .public) latency=\(latencyMs)ms bytes=\(data.count)")
         AppLogger.log("ai", level: .info, "anthropic ok model=\(model) latency=\(latencyMs)ms")
-        return try DraftParser.parse(text, context: context, providerLabel: "Claude \(model)")
+        return text
     }
 }

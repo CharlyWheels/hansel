@@ -12,7 +12,8 @@ enum AppModelContainer {
             IdleInterval.self,
             CalendarEventLink.self,
             ClassificationRule.self,
-            Todo.self
+            Todo.self,
+            FocusDecision.self
         ])
         let url = appSupportDirectory().appending(path: "TimeTracker.store")
         do {

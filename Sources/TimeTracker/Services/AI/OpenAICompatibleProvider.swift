@@ -10,8 +10,7 @@ struct OpenAICompatibleProvider: AIProvider {
     let model: String
     let apiKey: String
 
-    func draft(_ context: SuggestionContext) async throws -> EntryDraft {
-        let (system, user) = PromptBuilder.build(context: context)
+    func complete(system: String, user: String, maxTokens: Int) async throws -> String {
         let url = baseURL.appendingPathComponent("chat/completions")
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -26,6 +25,7 @@ struct OpenAICompatibleProvider: AIProvider {
                 ["role": "user", "content": user]
             ],
             "temperature": 0.2,
+            "max_tokens": maxTokens,
             "response_format": ["type": "json_object"]
         ]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -51,6 +51,6 @@ struct OpenAICompatibleProvider: AIProvider {
         }
         AppLogger.ai.info("oai ok host=\(url.host ?? "", privacy: .public) model=\(model, privacy: .public) latency=\(latencyMs)ms")
         AppLogger.log("ai", level: .info, "oai ok host=\(url.host ?? "") model=\(model) latency=\(latencyMs)ms")
-        return try DraftParser.parse(text, context: context, providerLabel: "\(displayName) \(model)")
+        return text
     }
 }

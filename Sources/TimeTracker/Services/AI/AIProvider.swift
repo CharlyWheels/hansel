@@ -34,10 +34,32 @@ struct EntryDraft {
     let raw: String
 }
 
+/// Providers implement one thing: turn a (system, user) pair into text.
+///
+/// Everything prompt-specific lives in the default implementations below, so adding a
+/// new kind of question — as `decideBoundary` does — costs nothing per provider and
+/// leaves every existing call site untouched.
 protocol AIProvider {
     var id: UUID { get }
     var displayName: String { get }
-    func draft(_ context: SuggestionContext) async throws -> EntryDraft
+    func complete(system: String, user: String, maxTokens: Int) async throws -> String
+}
+
+extension AIProvider {
+    /// Classify a window of activity. The original question, unchanged.
+    func draft(_ context: SuggestionContext) async throws -> EntryDraft {
+        let (system, user) = PromptBuilder.build(context: context)
+        let text = try await complete(system: system, user: user, maxTokens: 512)
+        return try DraftParser.parse(text, context: context, providerLabel: displayName)
+    }
+
+    /// Adjudicate a boundary the local signals already proposed: did the task change,
+    /// and if so exactly when?
+    func decideBoundary(_ context: BoundaryContext) async throws -> BoundaryVerdict {
+        let (system, user) = BoundaryPromptBuilder.build(context: context)
+        let text = try await complete(system: system, user: user, maxTokens: 512)
+        return try BoundaryParser.parse(text, context: context, providerLabel: displayName)
+    }
 }
 
 struct ContextFieldSelection: Codable, Equatable {
