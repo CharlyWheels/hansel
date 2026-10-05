@@ -14,6 +14,10 @@ struct TimeTrackerApp: App {
     @State private var completionService: EntryCompletionService
     @State private var audioMonitor: AudioInputMonitor
     @State private var meetingDetector: MeetingDetector
+    @State private var meetingProvider: MeetingProvider
+    @State private var focusStore: FocusStore
+    @State private var promptCenter: FocusPromptCenter
+    @State private var arbiter: FocusArbiter
 
     init() {
         let c = AppModelContainer.shared
@@ -57,6 +61,48 @@ struct TimeTrackerApp: App {
             let recent = (try? ctx.fetch(descriptor)) ?? []
             return recent.contains { ConferenceCatalog.isConferenceURL($0.url) }
         }
+        // --- Focus pipeline -------------------------------------------------------
+        let meetings = MeetingProvider()
+        meeting.trustworthyMeetingInProgress = { [weak meetings] in
+            meetings?.trustworthyMeetingInProgress() ?? false
+        }
+        let store = FocusStore(modelContext: ctx, timerController: ctrl, meetingProvider: meetings)
+        let prompts = FocusPromptCenter(timerController: ctrl, store: store, modelContext: ctx)
+
+        var deps = FocusArbiter.Dependencies(
+            buildContext: { [weak store] candidate in
+                store?.buildBoundaryContext(for: candidate)
+            },
+            consult: { context in
+                guard let provider = ProviderRegistry.defaultProvider() else {
+                    throw AIError.noProviderConfigured
+                }
+                return try await provider.decideBoundary(context)
+            },
+            apply: { [weak prompts, weak store] action, _, decisionID in
+                guard let prompts, let store else { return }
+                prompts.present(
+                    action,
+                    decisionID: decisionID,
+                    previousTitle: store.currentEntry()?.title ?? ""
+                )
+            },
+            stop: { [weak ctrl] at in ctrl?.stop(at: at) },
+            record: { [weak store] decision in store?.record(decision) }
+        )
+        deps.samples = { [weak store] from, to in store?.samples(from: from, to: to) ?? [] }
+        deps.idleSpans = { [weak store] from, to in store?.idleSpans(from: from, to: to) ?? [] }
+        deps.meetings = { [weak meetings] from, to in meetings?.meetings(from: from, to: to) ?? [] }
+        deps.currentEntry = { [weak store] in store?.currentEntry() }
+        deps.isIdle = { [weak idle] in idle?.isIdle ?? false }
+        deps.idleStartedAt = { [weak idle] in idle?.currentIdleStart }
+        deps.lastManualEditAt = { [weak ctrl] in ctrl?.lastManualEditAt }
+        deps.allowedCalendarIds = { [weak meetings] in meetings?.allowedCalendarIds }
+        deps.suppressedTransitions = { [weak store] in store?.suppressedTransitions() ?? [] }
+
+        let focusArbiter = FocusArbiter(dependencies: deps)
+        prompts.onResolved = { [weak focusArbiter] in focusArbiter?.userResponded() }
+
         _controller = State(wrappedValue: ctrl)
         _activityMonitor = State(wrappedValue: activity)
         _idleMonitor = State(wrappedValue: idle)
@@ -66,6 +112,10 @@ struct TimeTrackerApp: App {
         _completionService = State(wrappedValue: completion)
         _audioMonitor = State(wrappedValue: audio)
         _meetingDetector = State(wrappedValue: meeting)
+        _meetingProvider = State(wrappedValue: meetings)
+        _focusStore = State(wrappedValue: store)
+        _promptCenter = State(wrappedValue: prompts)
+        _arbiter = State(wrappedValue: focusArbiter)
         AppLogger.ui.info("TimeTrackerApp launched")
         AppLogger.log("ui", level: .info, "launch")
     }
@@ -75,11 +125,13 @@ struct TimeTrackerApp: App {
             MenuBarContent()
                 .environment(controller)
                 .environment(completionService)
+                .environment(promptCenter)
                 .modelContainer(container)
         } label: {
             MenuBarLabel()
                 .environment(controller)
                 .environment(completionService)
+                .environment(promptCenter)
                 .task { bootServicesOnce() }
         }
         .menuBarExtraStyle(.window)
@@ -88,6 +140,7 @@ struct TimeTrackerApp: App {
             ContentView()
                 .environment(controller)
                 .environment(completionService)
+                .environment(promptCenter)
                 .modelContainer(container)
                 .frame(minWidth: 960, minHeight: 640)
                 .task { bootServicesOnce() }
@@ -97,6 +150,7 @@ struct TimeTrackerApp: App {
             SettingsView()
                 .environment(controller)
                 .environment(completionService)
+                .environment(promptCenter)
                 .modelContainer(container)
                 .frame(width: 760, height: 520)
         }
@@ -115,7 +169,10 @@ struct TimeTrackerApp: App {
         activityMonitor.start()
         watchdog.start()
         completionService.start()
+        arbiter.start()
+        promptCenter.start()
         Task { await calendarService.start() }
+        Task { await meetingProvider.start() }
         AppLogger.ui.info("Background services started")
         AppLogger.log("ui", level: .info, "services_started")
     }

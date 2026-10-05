@@ -35,8 +35,9 @@ final class FocusArbiter {
         var buildContext: (ContextSegmenter.BoundaryCandidate) -> BoundaryContext?
         /// Calls the model.
         var consult: (BoundaryContext) async throws -> BoundaryVerdict
-        /// Applies the chosen action. Nothing else in this class mutates anything.
-        var apply: (FocusPolicy.Action, ContextSegmenter.BoundaryCandidate) -> Void
+        /// Applies the chosen action, given the id of the decision it was logged
+        /// under so the user's answer can be attached to the right row.
+        var apply: (FocusPolicy.Action, ContextSegmenter.BoundaryCandidate, UUID) -> Void
         /// Ends the running entry at a supplied instant.
         var stop: (Date) -> Void
         /// Appends to the decision log.
@@ -209,18 +210,22 @@ final class FocusArbiter {
             lastAskPerBucket[bucket] = now
             recentPromptTimes.append(now)
             questionsAsked += 1
-            record(.asked, candidate: candidate, bucket: bucket,
-                   confidence: verdict.confidence, rationale: verdict.rationale,
-                   raw: verdict.raw, proposal: proposal)
-            deps.apply(action, candidate)
+            let decisionID = record(
+                .asked, candidate: candidate, bucket: bucket,
+                confidence: verdict.confidence, rationale: verdict.rationale,
+                raw: verdict.raw, proposal: proposal
+            )
+            deps.apply(action, candidate, decisionID)
 
         case let .switchTo(proposal):
             phase = .watching
             lastAskPerBucket[bucket] = now
-            record(.autoSwitched, candidate: candidate, bucket: bucket,
-                   confidence: verdict.confidence, rationale: verdict.rationale,
-                   raw: verdict.raw, proposal: proposal)
-            deps.apply(action, candidate)
+            let decisionID = record(
+                .autoSwitched, candidate: candidate, bucket: bucket,
+                confidence: verdict.confidence, rationale: verdict.rationale,
+                raw: verdict.raw, proposal: proposal
+            )
+            deps.apply(action, candidate, decisionID)
         }
     }
 
@@ -247,8 +252,8 @@ final class FocusArbiter {
         lastAskPerBucket[bucket] = now
         recentPromptTimes.append(now)
         questionsAsked += 1
-        record(.asked, candidate: candidate, bucket: bucket, proposal: proposal)
-        deps.apply(.ask(proposal), candidate)
+        let decisionID = record(.asked, candidate: candidate, bucket: bucket, proposal: proposal)
+        deps.apply(.ask(proposal), candidate, decisionID)
     }
 
     // MARK: - Helpers
@@ -285,6 +290,7 @@ final class FocusArbiter {
         return parts.joined(separator: " · ")
     }
 
+    @discardableResult
     private func record(
         _ kind: FocusDecisionKind,
         candidate: ContextSegmenter.BoundaryCandidate,
@@ -294,7 +300,7 @@ final class FocusArbiter {
         rationale: String? = nil,
         raw: String? = nil,
         proposal: FocusPolicy.Proposal? = nil
-    ) {
+    ) -> UUID {
         let decision = FocusDecision(
             kind: kind,
             bucket: bucket,
@@ -314,5 +320,6 @@ final class FocusArbiter {
             fromEntryID: deps.currentEntry()?.id
         )
         deps.record(decision)
+        return decision.id
     }
 }

@@ -110,7 +110,7 @@ final class FocusArbiterTests: XCTestCase {
                     todo: nil, confidence: 0.7, rationale: "different repo", raw: "{}"
                 )
             },
-            apply: { [weak self] action, _ in self?.applied.append(action) },
+            apply: { [weak self] action, _, _ in self?.applied.append(action) },
             stop: { [weak self] at in self?.stops.append(at) },
             record: { [weak self] decision in self?.decisions.append(decision) }
         )

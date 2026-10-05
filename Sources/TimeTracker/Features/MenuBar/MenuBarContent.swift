@@ -4,6 +4,7 @@ import SwiftData
 struct MenuBarContent: View {
     @Environment(TimerController.self) private var controller
     @Environment(EntryCompletionService.self) private var completion
+    @Environment(FocusPromptCenter.self) private var prompts
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openWindow) private var openWindow
 
@@ -30,6 +31,14 @@ struct MenuBarContent: View {
         VStack(alignment: .leading, spacing: 10) {
             HanselBrandRow(iconSize: 20)
             Divider()
+            if let pending = prompts.pending {
+                switchBanner(pending)
+                Divider()
+            }
+            if let undo = prompts.undoable {
+                undoRow(undo)
+                Divider()
+            }
             if let prompt = completion.pendingPrompt {
                 completionBanner(prompt)
                 Divider()
@@ -48,6 +57,75 @@ struct MenuBarContent: View {
         }
         .padding(12)
         .frame(width: 360)
+    }
+
+    // MARK: - Task-switch question
+
+    /// Three answers, not two. "Change" and "it's something else" mean different
+    /// things: the first says the boundary AND the label were right, the second says
+    /// only the boundary was. Collapsing them would record a wrong label as an accepted
+    /// proposal and teach the model its own mistake.
+    @ViewBuilder
+    private func switchBanner(_ pending: FocusPromptCenter.PendingSwitch) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "arrow.triangle.branch")
+                    .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("¿Sigues con \"\(pending.previousTitle)\"?")
+                        .font(.callout.weight(.medium))
+                    if pending.hasLabel {
+                        Text("Parece que ahora estás en \"\(pending.proposedTitle)\".")
+                            .font(.callout)
+                    } else {
+                        Text("Detecté un cambio a las \(hhmm(pending.proposal.boundaryAt)), pero no sé en qué.")
+                            .font(.callout)
+                    }
+                    // Showing the evidence is what makes an automatic switch
+                    // acceptable rather than mysterious.
+                    Text(pending.proposal.evidence)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            HStack(spacing: 6) {
+                Button("Sigo igual") { prompts.keepCurrent() }
+                    .buttonStyle(.bordered)
+                Spacer()
+                Button("Es otra cosa…") { prompts.switchAndEdit() }
+                    .buttonStyle(.bordered)
+                if pending.hasLabel {
+                    Button("Cambiar") { prompts.applySwitch() }
+                        .buttonStyle(.borderedProminent)
+                }
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.12)))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.orange.opacity(0.4), lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private func undoRow(_ undo: FocusPromptCenter.UndoRecord) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: "arrow.uturn.backward.circle.fill")
+                .foregroundStyle(.blue)
+            Text("Cambiado a \"\(undo.title)\"")
+                .font(.callout)
+                .lineLimit(1)
+            Spacer()
+            Button("Deshacer") { prompts.undoLastSwitch() }
+                .buttonStyle(.borderless)
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.10)))
+    }
+
+    private func hhmm(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f.string(from: date)
     }
 
     // MARK: - Completion prompt banner
@@ -167,6 +245,9 @@ struct MenuBarContent: View {
     /// classification example.
     private func saveEntry() {
         controller.runningEntry?.isHumanConfirmed = true
+        // Touching an entry by hand also buys it protection: the arbiter will not
+        // propose over a recent human decision.
+        controller.noteManualEdit()
         try? modelContext.save()
     }
 

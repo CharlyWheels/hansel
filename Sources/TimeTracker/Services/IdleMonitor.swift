@@ -31,6 +31,9 @@ final class IdleMonitor {
 
     private var timer: Timer?
     private var openInterval: IdleInterval?
+    /// Start of the idle span currently in progress, so an entry can be ended at the
+    /// moment work actually stopped rather than when we noticed.
+    var currentIdleStart: Date? { openInterval?.start }
     private var listeners: [(Bool) -> Void] = []
 
     init(modelContext: ModelContext, thresholdSeconds: TimeInterval = 5 * 60) {

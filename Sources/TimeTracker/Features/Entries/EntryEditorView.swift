@@ -4,6 +4,7 @@ import SwiftData
 struct EntryEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(TimerController.self) private var controller
 
     @Bindable var entry: TimeEntry
 
@@ -100,6 +101,7 @@ struct EntryEditorView: View {
                     // An explicit save means a human vouched for this entry, so it
                     // becomes eligible as a classification example.
                     entry.isHumanConfirmed = true
+                    controller.noteManualEdit()
                     try? modelContext.save()
                     dismiss()
                 }

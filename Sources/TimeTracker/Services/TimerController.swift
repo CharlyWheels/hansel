@@ -18,6 +18,14 @@ enum TimerMachineState: Equatable {
 final class TimerController {
     private(set) var state: TimerMachineState = .watching
     private(set) var runningEntry: TimeEntry?
+    /// When the user last edited the running entry by hand. The arbiter will not
+    /// propose over a recent human decision.
+    private(set) var lastManualEditAt: Date?
+
+    /// Called by the editing surfaces whenever the user changes an entry themselves.
+    func noteManualEdit(at date: Date = Date()) {
+        lastManualEditAt = date
+    }
 
     private let modelContext: ModelContext
 
@@ -115,6 +123,7 @@ final class TimerController {
         try? modelContext.save()
         runningEntry = entry
         state = .running
+        if source == .manual { lastManualEditAt = Date() }
         AppLogger.timer.info("Timer started source=\(source.rawValue, privacy: .public) title=\(title, privacy: .public)")
         AppLogger.log("timer", level: .info, "start source=\(source.rawValue) title=\(title)")
     }
