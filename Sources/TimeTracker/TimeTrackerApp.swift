@@ -173,6 +173,17 @@ struct TimeTrackerApp: App {
             enricher?.meetingReady(record, document: document)
         }
         importer.onScanFinished = { [weak enricher] in enricher?.retryDue() }
+        // Past decisions shape the next proposals: rules first, then the model's examples.
+        proposals.learned = { [weak ctx] record in
+            guard let ctx else { return (nil, nil) }
+            let decisions = ProposalLearning.decisions(context: ctx)
+            return (ProposalLearning.learnedProjectID(forMeetingTitle: record.title, decisions: decisions),
+                    ProposalLearning.meetingHint(forMeetingTitle: record.title, decisions: decisions))
+        }
+        enricher.examples = { [weak ctx] in
+            guard let ctx else { return ([], []) }
+            return ProposalLearning.examples(decisions: ProposalLearning.decisions(context: ctx))
+        }
         _meetingEnricher = State(wrappedValue: enricher)
         _proposalService = State(wrappedValue: proposals)
         AppLogger.ui.info("TimeTrackerApp launched")

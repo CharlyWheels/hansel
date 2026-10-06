@@ -215,7 +215,11 @@ final class MeetingTaskEnricher {
     /// Tasks found in the transcript get source keys from 1000 up, so they can never
     /// collide with action item indexes if a summary appears later.
     private func createExtracted(_ tasks: [MeetingTaskParser.ParsedTask], record: MeetingRecord, document: MeetingNotesDocument) {
-        let resolution = MeetingContextResolver.resolve(record: record, learnedProjectID: nil, context: modelContext)
+        let decisions = ProposalLearning.decisions(context: modelContext)
+        let resolution = MeetingContextResolver.resolve(
+            record: record,
+            learnedProjectID: ProposalLearning.learnedProjectID(forMeetingTitle: record.title, decisions: decisions),
+            context: modelContext)
         let input = ProposalFactory.Input(record: record, document: document, resolution: resolution,
                                           userNames: OwnerMatcher.userNames())
         let existing = Set(((try? modelContext.fetch(FetchDescriptor<TodoProposal>())) ?? [])

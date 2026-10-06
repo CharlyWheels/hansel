@@ -110,7 +110,9 @@ struct MeetingDetailView: View {
     // MARK: - Context
 
     private var contextSection: some View {
-        let resolution = MeetingContextResolver.resolve(record: meeting, learnedProjectID: nil, context: modelContext)
+        let learned = ProposalLearning.learnedProjectID(
+            forMeetingTitle: meeting.title, decisions: ProposalLearning.decisions(context: modelContext))
+        let resolution = MeetingContextResolver.resolve(record: meeting, learnedProjectID: learned, context: modelContext)
         let project = projects.first { $0.id == resolution.projectID }
         let customer = customers.first { $0.id == resolution.customerID }
         return GroupBox {

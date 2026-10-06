@@ -3,6 +3,9 @@ import AppKit
 
 struct MeetingsSettingsView: View {
     @Environment(MeetingImporter.self) private var importer
+    @Environment(\.modelContext) private var modelContext
+    @State private var decisionCount = 0
+    @State private var confirmReset = false
 
     @AppStorage(MeetingImporter.enabledKey) private var importEnabled = true
     @AppStorage(MeetingNotesArchive.pathDefaultsKey) private var archivePath = ""
@@ -45,6 +48,16 @@ struct MeetingsSettingsView: View {
                 Text("Comma-separated, e.g. \"Carlos, Carlos Rueda\". Meeting Notes does not know who is speaking; when its summary assigns a task to someone whose name is not one of these, the proposal is marked as probably for someone else.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Learning from your decisions") {
+                HStack {
+                    Text("\(decisionCount) accepted or declined proposal(s) in the last 180 days")
+                    Spacer()
+                    Button("Forget…") { confirmReset = true }
+                        .disabled(decisionCount == 0)
+                }
+                Text("When you move a task from a recurring meeting to another project, the next tasks from that meeting get that project. If you decline every proposal from a meeting, later ones say so. With AI refinement on, recent declines and title rewrites are shown to the model as examples.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Refine proposals with AI") {
                 Toggle("Let the AI provider refine proposed todos", isOn: $aiEnabled)
                 Toggle("Include what was said around each task", isOn: $aiTranscript)
@@ -54,6 +67,19 @@ struct MeetingsSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear(perform: countDecisions)
+        .confirmationDialog("Forget what Hansel learned from your decisions?", isPresented: $confirmReset) {
+            Button("Forget", role: .destructive) {
+                ProposalLearning.reset(context: modelContext)
+                countDecisions()
+            }
+        } message: {
+            Text("Accepted and declined proposals are deleted. Todos you accepted stay, and undecided proposals are kept.")
+        }
+    }
+
+    private func countDecisions() {
+        decisionCount = ProposalLearning.decisions(context: modelContext).count
     }
 
     private func chooseFolder() {

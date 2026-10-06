@@ -103,6 +103,39 @@ is deliberately not containerised. `swift test` runs the full test suite locally
 Grant them in `System Settings → Privacy & Security`. The Permissions pane shows live
 status. Microphone and camera detection need no permission at all.
 
+## Meetings and proposed todos (Meeting Notes)
+
+Hansel reads the archive of [Meeting Notes](https://github.com/foeken/meeting-notes),
+the local meeting recorder, and never writes to it. It follows that app's archive folder
+(`~/Documents/Meetings Notes` by default) unless you choose another one in
+**Settings → Meetings**. The archive is checked every two minutes.
+
+- **Meetings page**: every finished meeting with its summary, decisions, open questions,
+  topics and the transcript. Transcript lines are labelled *Me* (microphone) or *Others*
+  (system audio). Meeting Notes does not identify speakers, so on a call that separates
+  you from the far end, and in a room it does not. Each meeting is linked to the time
+  entry that covers most of it.
+- **Proposed todos**: each action item in the summary becomes a proposal with title,
+  notes (the original sentence, the moment it was said and a link to the notes), project
+  and customer filled in. They wait in an inbox at the top of **Todos**, on the meeting's
+  page and in the menu bar, and only become todos when you accept them (✓), edit and
+  accept, or decline (✕).
+- **Where the project comes from**, strongest first: the project you moved earlier tasks
+  from the same recurring meeting to; the time entry covering the meeting; your last
+  confirmed entry with the same title; the customer owning the attendees' email domain
+  (and its project, if it has only one).
+- **Someone else's task**: when the summary names an owner who is not you (set your names
+  in Settings → Meetings), the proposal is marked as probably for someone else.
+- **AI refinement (opt-in)**: one call per meeting to the default provider rewrites
+  titles, picks a project when the rules found none, sets a due date only when one was
+  said, and judges whether the task is yours. Without an action item list it finds the
+  tasks in the transcript. Proposals you edited, and projects from your own data, are
+  never overwritten. It has its own allowance (12 calls/hour, 25/day). It sends meeting
+  content to that provider, so it is off by default.
+- **Learning**: project corrections per recurring meeting, a warning on meetings whose
+  proposals you always decline, and (with AI on) recent declines and title rewrites as
+  examples for the model. **Forget…** in Settings → Meetings deletes that history.
+
 ## Settings worth knowing
 
 - **Calendar** — choose which calendars may start tracking, and list your own email
@@ -110,6 +143,8 @@ status. Microphone and camera detection need no permission at all.
   report it on Google accounts).
 - **General** — idle and auto-start thresholds, when to ask about away time, the
   periodic check-in, and how long an unanswered switch question waits before expiring.
+- **Meetings** — Meeting Notes archive folder, the names you go by, AI refinement of
+  proposed todos, and the learned history.
 - **AI** — provider, model, and which context fields are sent. The toggles apply to
   every prompt, including task-switch questions. The default Claude preset is
   `claude-opus-5-5` at low effort; model calls are capped per hour and per day, and the
@@ -118,7 +153,10 @@ status. Microphone and camera detection need no permission at all.
 ## Data retention
 
 Activity samples are kept 30 days, idle spans 90 days, calendar links 30 days. Time
-entries, todos and the catalog are never pruned.
+entries, todos and the catalog are never pruned. Meetings are mirrored from the Meeting
+Notes archive (a meeting deleted there disappears here, with its undecided proposals);
+transcripts are read from the archive, never copied. Decided proposals older than 180
+days no longer count for learning.
 
 ## Logs
 
