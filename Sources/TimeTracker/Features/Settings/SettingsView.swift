@@ -26,6 +26,7 @@ struct GeneralSettingsView: View {
     @AppStorage("periodicCheckMinutes") private var periodicCheckMinutes: Int = 90
     @AppStorage("switchPromptTimeoutMinutes") private var switchPromptTimeoutMinutes: Int = 10
     @AppStorage("autoSwitchOnMeetingJoin") private var autoSwitchOnMeetingJoin: Bool = true
+    @AppStorage("longAwayMinutes") private var longAwayMinutes: Int = 60
     @State private var launchAtLogin: Bool = LaunchAtLogin.isEnabled
 
     var body: some View {
@@ -39,18 +40,20 @@ struct GeneralSettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Check-ins") {
-                Stepper("Ask about away time after: \(promptIdleMinutes) min",
+                Stepper("Remove away time after: \(promptIdleMinutes) min",
                         value: $promptIdleMinutes, in: 1...120)
+                Stepper("Stop the timer if away for: \(longAwayMinutes) min",
+                        value: $longAwayMinutes, in: 15...480, step: 15)
                 Stepper("Periodic check-in every: \(periodicCheckMinutes) min",
                         value: $periodicCheckMinutes, in: 15...480, step: 15)
                 Stepper("Unanswered switch question expires after: \(switchPromptTimeoutMinutes) min",
                         value: $switchPromptTimeoutMinutes, in: 2...60)
-                Text("The timer never stops by itself. When you come back after being away while a timer ran, you'll be asked whether to keep that time, remove it, or end the entry when you left. Time in a detected call is never treated as away. Long-running entries also get a periodic check-in.")
+                Text("Time away from the Mac is not tracked. After a short absence the away time is removed and the task carries on; after a long one (or overnight) the entry is closed when you left. You can keep the time from the notice in the menu bar. Listening on a call with the screen unlocked counts as present. Long-running entries also get a periodic check-in.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Meetings") {
                 Toggle("Switch automatically when I join a calendar meeting", isOn: $autoSwitchOnMeetingJoin)
-                Text("When a meeting you're attending is in progress and your microphone turns on, the running entry is closed and the meeting starts, without asking. You can undo it from the menu bar for 15 minutes.")
+                Text("When a meeting with other people or a video link is in progress and your microphone turns on, the running entry is closed and the meeting starts, without asking. Personal calendar blocks never trigger it. You can undo it from the menu bar for 15 minutes.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Startup") {

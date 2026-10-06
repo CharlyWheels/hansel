@@ -87,6 +87,10 @@ struct MeetingWindow: Equatable, Sendable {
     /// attributing the meeting to a customer.
     var attendeeDomains: [String] = []
 
+    /// Other people or a video link. A block with neither ("Kids' music lesson",
+    /// "Focus") is on the calendar, but nobody is meeting anyone in it.
+    var isRealMeeting: Bool { attendeeCount >= 2 || hasConferenceURL }
+
     init(
         eventId: String,
         title: String,

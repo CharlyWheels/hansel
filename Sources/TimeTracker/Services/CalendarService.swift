@@ -88,6 +88,7 @@ final class CalendarService {
             now: now,
             handledIds: handled,
             latestEnd: controller.latestEndedAt(),
+            lastReturn: idleMonitor?.lastIdleEnd,
             allowedCalendarIds: provider.allowedCalendarIds
         ) else { return }
 
@@ -114,12 +115,14 @@ final class CalendarService {
     ///
     /// Pure so the rules are testable: the event must be trustworthy, not already
     /// handled, and have begun within the catch-up window. The entry is back-dated to
-    /// the event's start, but never over the end of the last entry the user closed.
+    /// the event's start, but never over the end of the last entry the user closed,
+    /// and never before the user came back to the Mac: time away is not tracked.
     static func coldStart(
         meetings: [MeetingWindow],
         now: Date,
         handledIds: Set<String>,
         latestEnd: Date?,
+        lastReturn: Date? = nil,
         allowedCalendarIds: Set<String>?
     ) -> (MeetingWindow, Date)? {
         let eligible = meetings.filter { meeting in
@@ -132,6 +135,7 @@ final class CalendarService {
         guard let meeting = eligible.max(by: { $0.start < $1.start }) else { return nil }
         var startAt = meeting.start
         if let latestEnd { startAt = max(startAt, min(latestEnd, now)) }
+        if let lastReturn { startAt = max(startAt, min(lastReturn, now)) }
         return (meeting, startAt)
     }
 

@@ -123,7 +123,7 @@ struct TimeTrackerApp: App {
         deps.joinedMeeting = { [weak meeting, weak meetings] in
             guard UserDefaults.standard.object(forKey: "autoSwitchOnMeetingJoin") as? Bool ?? true,
                   let state = meeting?.state, state.isInMeeting,
-                  let current = meetings?.currentMeeting() else { return nil }
+                  let current = meetings?.currentMeeting(), current.isRealMeeting else { return nil }
             return (current, state.since ?? Date())
         }
         deps.labelsForMeeting = { [weak ctx] meeting in

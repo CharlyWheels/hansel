@@ -60,4 +60,12 @@ final class CalendarColdStartTests: XCTestCase {
         let newer = meeting(id: "b#1", startedAgo: 60)
         XCTAssertEqual(coldStart([older, newer])?.0.eventId, "b#1")
     }
+
+    func test_neverBackdatesOverTheTimeTheUserWasAway() {
+        let m = meeting(startedAgo: 1200)
+        let cameBack = now.addingTimeInterval(-120)
+        let result = CalendarService.coldStart(meetings: [m], now: now, handledIds: [],
+                                               latestEnd: nil, lastReturn: cameBack, allowedCalendarIds: nil)
+        XCTAssertEqual(result?.1, cameBack)
+    }
 }

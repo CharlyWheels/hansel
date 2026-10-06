@@ -18,6 +18,12 @@ final class IdleMonitor {
     /// wake, so sleep has to be tracked explicitly or a night with the lid closed
     /// would never show up as idle.
     private(set) var isAsleep: Bool = false
+    /// Whether the screen was locked or the Mac slept at any point in the current (or
+    /// just-ended) idle span. That is never "listening on a call": the user was away.
+    private(set) var currentIdleSawLockOrSleep = false
+    /// When the user last came back from being idle. Nothing started automatically may
+    /// be back-dated before it.
+    private(set) var lastIdleEnd: Date?
 
     /// Fallback used when the user has never touched the Settings stepper.
     private let defaultThresholdSeconds: TimeInterval
@@ -109,6 +115,7 @@ final class IdleMonitor {
             let start = hidIdle && !isScreenLocked && !isAsleep
                 ? Date().addingTimeInterval(-sinceInput)
                 : Date()
+            currentIdleSawLockOrSleep = isScreenLocked || isAsleep
             let interval = IdleInterval(start: start, end: nil)
             modelContext.insert(interval)
             openInterval = interval
@@ -117,6 +124,7 @@ final class IdleMonitor {
         } else {
             openInterval?.end = Date()
             openInterval = nil
+            lastIdleEnd = Date()
             AppLogger.idle.info("Exited idle")
             AppLogger.log("idle", level: .info, "exit")
         }
@@ -157,6 +165,7 @@ final class IdleMonitor {
     private func handleSleepChange(_ asleep: Bool) {
         guard asleep != isAsleep else { return }
         isAsleep = asleep
+        if asleep { currentIdleSawLockOrSleep = true }
         AppLogger.log("idle", level: .info, "sleep_changed asleep=\(asleep)")
         tick()
     }
@@ -164,6 +173,7 @@ final class IdleMonitor {
     private func handleLockChange(_ locked: Bool) {
         guard locked != isScreenLocked else { return }
         isScreenLocked = locked
+        if locked { currentIdleSawLockOrSleep = true }
         AppLogger.idle.info("Screen lock state changed → locked=\(locked, privacy: .public)")
         AppLogger.log("idle", level: .info, "lock_changed locked=\(locked)")
         tick()

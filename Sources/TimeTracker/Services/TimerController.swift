@@ -380,13 +380,22 @@ final class TimerController {
     ///
     /// The entry is closed where the absence began and a continuation with the same
     /// labels opens where it ended, so the gap is simply not tracked.
-    func excludeAwayTime(from gapStart: Date, to gapEnd: Date) {
-        guard isRunning, let entry = runningEntry, gapEnd > gapStart else { return }
+    enum AwayExclusion: Equatable {
+        /// The entry began during the absence; its start moved to the return.
+        case trimmedStart(entryID: UUID, originalStart: Date)
+        /// The entry was closed where the absence began and continued on return.
+        case split(originalID: UUID, continuationID: UUID)
+    }
+
+    @discardableResult
+    func excludeAwayTime(from gapStart: Date, to gapEnd: Date) -> AwayExclusion? {
+        guard isRunning, let entry = runningEntry, gapEnd > gapStart else { return nil }
         if gapStart <= entry.startAt {
+            let originalStart = entry.startAt
             entry.startAt = min(gapEnd, Date())
             try? modelContext.save()
             AppLogger.log("timer", level: .info, "away_trimmed_start id=\(entry.id)")
-            return
+            return .trimmedStart(entryID: entry.id, originalStart: originalStart)
         }
         let continuation = TimeEntry(
             title: entry.title,
@@ -410,6 +419,7 @@ final class TimerController {
         runningEntry = continuation
         state = .running
         AppLogger.log("timer", level: .info, "away_excluded from=\(entry.id) to=\(continuation.id) gap=\(Int(gapEnd.timeIntervalSince(gapStart)))s")
+        return .split(originalID: entry.id, continuationID: continuation.id)
     }
 
     /// When the most recently closed entry ended.

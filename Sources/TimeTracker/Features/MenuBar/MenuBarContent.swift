@@ -52,6 +52,10 @@ struct MenuBarContent: View {
                 completionBanner(prompt)
                 Divider()
             }
+            if let notice = completion.awayNotice {
+                awayBanner(notice)
+                Divider()
+            }
             if controller.isRunning {
                 runningSection
             } else {
@@ -167,29 +171,39 @@ struct MenuBarContent: View {
             .padding(10)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.12)))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.orange.opacity(0.4), lineWidth: 1))
-        case let .awayQuestion(from, _):
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "moon.zzz.fill")
-                        .foregroundStyle(.blue)
-                    Text(prompt.message)
+        }
+    }
+
+    // MARK: - Away notice
+
+    @ViewBuilder
+    private func awayBanner(_ notice: EntryCompletionService.AwayNotice) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "moon.zzz.fill")
+                    .foregroundStyle(.blue)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(notice.message)
                         .font(.callout)
                         .lineLimit(3)
-                }
-                HStack(spacing: 6) {
-                    Button("End at \(hhmm(from))") { completion.endAtAwayStart() }
-                        .buttonStyle(.bordered)
-                    Spacer()
-                    Button("Remove away time") { completion.excludeAwayTime() }
-                        .buttonStyle(.bordered)
-                    Button("Keep") { completion.confirmContinue() }
-                        .buttonStyle(.borderedProminent)
+                    Text("Away \(hhmm(notice.from))–\(hhmm(notice.to)). Time away from the Mac isn't tracked.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .padding(10)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.10)))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.blue.opacity(0.35), lineWidth: 1))
+            HStack(spacing: 6) {
+                if completion.canKeepAwayTime {
+                    Button("Keep that time") { completion.keepAwayTime() }
+                        .buttonStyle(.bordered)
+                }
+                Spacer()
+                Button("OK") { completion.dismissAwayNotice() }
+                    .buttonStyle(.borderedProminent)
+            }
         }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.10)))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.blue.opacity(0.35), lineWidth: 1))
     }
 
     // MARK: - Running

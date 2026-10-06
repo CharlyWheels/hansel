@@ -24,7 +24,7 @@ not attending scores below the threshold; a declined invitation, an all-day even
 block that shows as "free" scores zero.
 
 Joining a calendar meeting is the one exception: when a meeting you are attending is in
-progress and your microphone turns on, the running entry is closed and the meeting starts
+progress, has other attendees or a video link, and your microphone turns on, the running entry is closed and the meeting starts
 right away, from the moment the call began, with its usual project if a past entry had
 the same title. It can be undone from the menu bar for 15 minutes, and turned off in
 Settings → General → Meetings. If you started a timer by hand after the meeting began,
@@ -38,18 +38,25 @@ model a new label. Applied switches stay undoable for 15 minutes.
 Every candidate, including the suppressed ones, is written to a `FocusDecision` log,
 which is both the debugging surface and the corpus that tunes the thresholds.
 
-## The timer never stops by itself
+## Time away from the Mac is not tracked
 
-Only you stop the timer. Locking the screen, walking away or closing the lid never ends
-an entry. When you come back after being away while a timer ran, Hansel asks whether to
-**keep** that time, **remove** it (the entry is split around the gap), or **end** the entry
-when you left. Time in a detected call counts as work and is not asked about. A periodic
-check-in (every 90 min by default) catches a timer left running by mistake.
+When you come back after being away (screen locked, Mac asleep, or no keyboard or mouse)
+while a timer ran, Hansel removes that time on its own:
+
+- **Short absence** (under 1 hour by default): the entry is split around the gap and the
+  same task carries on from your return.
+- **Long absence** (1 hour or more, e.g. overnight): the entry is closed at the moment you
+  left, and nothing continues by itself.
+
+A notice in the menu bar says what was done and offers **Keep that time** to undo it.
+Listening on a call with the screen unlocked counts as present. A locked screen or a
+sleeping Mac is always away. A periodic check-in (every 90 min by default) catches a
+timer left running by mistake.
 
 Calendar events start a timer only when nothing is running, the event is in progress,
 began less than 30 minutes ago, and is one you are attending (not declined, not an
 unanswered invite, not a "free" hold). The entry starts at the event's start, but never
-earlier than the end of your last entry.
+earlier than the end of your last entry, nor before you came back to the Mac.
 
 ## Build
 

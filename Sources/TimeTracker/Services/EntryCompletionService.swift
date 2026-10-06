@@ -6,9 +6,12 @@ import Observation
 /// can be asked. It never ends an entry by itself: the user always stops the timer.
 ///
 /// Triggers:
-///   1. **Away on return** — on the idle → active transition, if the user was away
-///      ≥ `promptIdleMinutes` while an entry ran, ask whether to keep that time, drop
-///      it from the entry, or end the entry where the absence began.
+///   1. **Away on return** — time away from the Mac is not tracked. On the idle →
+///      active transition, if the user was away ≥ `promptIdleMinutes` while an entry
+///      ran, the away span is removed automatically: a short absence splits the entry
+///      and the task carries on; a long one (≥ `longAwayMinutes`, e.g. overnight)
+///      closes the entry where the absence began. A notice offers "Keep that time".
+///      Only a real call with the screen unlocked throughout counts as present.
 ///   2. **Periodic check-in** — entry running longer than `periodicCheckMinutes` and no
 ///      prompt has been shown recently. Since the timer never stops by itself, this is
 ///      what catches one left running by mistake.
@@ -26,8 +29,6 @@ final class EntryCompletionService {
     // Public UI state
     enum PendingPromptKind: Equatable {
         case doneQuestion    // "Still working on '{title}'?"  → [Keep] / [End]
-        /// "You were away N min while '{title}' ran." → [Keep] / [Remove] / [End at start]
-        case awayQuestion(from: Date, to: Date)
     }
     struct PendingPrompt: Equatable {
         let kind: PendingPromptKind
@@ -35,6 +36,21 @@ final class EntryCompletionService {
         let entryId: UUID
     }
     private(set) var pendingPrompt: PendingPrompt?
+
+    /// What was done about an absence, so it can be shown and undone.
+    struct AwayNotice: Equatable {
+        enum Action: Equatable {
+            case split(originalID: UUID, continuationID: UUID)
+            case trimmedStart(entryID: UUID, originalStart: Date)
+            case stopped(entryID: UUID)
+        }
+        let action: Action
+        let message: String
+        let from: Date
+        let to: Date
+        let at: Date
+    }
+    private(set) var awayNotice: AwayNotice?
 
     // Dependencies
     private weak var timerController: TimerController?
@@ -47,8 +63,8 @@ final class EntryCompletionService {
     // Internal state
     private var tickTimer: Timer?
     private var idleStartedAt: Date?
-    /// Whether a meeting was in progress at any point during the current idle span.
-    private var meetingDuringIdle = false
+    /// Whether a call was in progress when the current idle span began.
+    private var inCallWhenIdleBegan = false
     /// Per-entry cooldown after a prompt is resolved. Keyed by the entry's id so a
     /// freshly started entry can prompt again without waiting for the previous entry's
     /// cooldown to expire.
@@ -103,20 +119,42 @@ final class EntryCompletionService {
         AppLogger.log("timer", level: .info, "completion_prompt_end id=\(prompt.entryId)")
     }
 
-    /// Drops the away span from the running entry and carries on tracking.
-    func excludeAwayTime() {
-        guard let prompt = takePromptForRunningEntry(),
-              case let .awayQuestion(from, to) = prompt.kind else { return }
-        timerController?.excludeAwayTime(from: from, to: to)
-        AppLogger.log("timer", level: .info, "completion_away_excluded id=\(prompt.entryId)")
+    /// "Keep that time": puts the away span back into the entry.
+    func keepAwayTime() {
+        guard let notice = awayNotice, let controller = timerController else { return }
+        awayNotice = nil
+        switch notice.action {
+        case let .split(originalID, continuationID):
+            guard let original = fetchEntry(originalID), let continuation = fetchEntry(continuationID),
+                  controller.undoSwitch(previous: original, created: continuation) else { return }
+        case let .trimmedStart(entryID, originalStart):
+            guard let entry = fetchEntry(entryID) else { return }
+            entry.startAt = originalStart
+            try? modelContext.save()
+        case let .stopped(entryID):
+            // Only if nothing else has started since.
+            guard !controller.isRunning, let entry = fetchEntry(entryID) else { return }
+            controller.resume(entry)
+        }
+        AppLogger.log("timer", level: .info, "completion_away_kept")
     }
 
-    /// Ends the running entry where the absence began.
-    func endAtAwayStart() {
-        guard let prompt = takePromptForRunningEntry(),
-              case let .awayQuestion(from, _) = prompt.kind else { return }
-        timerController?.stop(at: from)
-        AppLogger.log("timer", level: .info, "completion_away_end id=\(prompt.entryId)")
+    func dismissAwayNotice() {
+        awayNotice = nil
+    }
+
+    /// Whether "Keep that time" can still be applied.
+    var canKeepAwayTime: Bool {
+        guard let notice = awayNotice, let controller = timerController else { return false }
+        switch notice.action {
+        case let .split(_, continuationID): return controller.runningEntry?.id == continuationID
+        case let .trimmedStart(entryID, _): return fetchEntry(entryID) != nil
+        case .stopped: return !controller.isRunning
+        }
+    }
+
+    private func fetchEntry(_ id: UUID) -> TimeEntry? {
+        try? modelContext.fetch(FetchDescriptor<TimeEntry>(predicate: #Predicate<TimeEntry> { $0.id == id })).first
     }
 
     /// Clears the pending prompt and returns it only if it is still about the running
@@ -133,6 +171,11 @@ final class EntryCompletionService {
     }
 
     // MARK: - Thresholds (from UserDefaults, live-reloaded)
+    /// An absence at least this long closes the entry instead of splitting it: nobody
+    /// wants yesterday's task to carry on by itself in the morning.
+    private var longAwayMinutes: Int {
+        max(5, UserDefaults.standard.object(forKey: "longAwayMinutes") as? Int ?? 60)
+    }
     private var promptIdleMinutes: Int {
         max(1, UserDefaults.standard.object(forKey: "promptIdleMinutes") as? Int ?? 2)
     }
@@ -145,18 +188,11 @@ final class EntryCompletionService {
     private func handleIdleTransition(isIdle: Bool) {
         if isIdle {
             idleStartedAt = idleMonitor?.currentIdleStart ?? Date()
-            meetingDuringIdle = meetingDetector?.state.isInMeeting == true
+            inCallWhenIdleBegan = meetingDetector?.state.isInMeeting == true
         } else {
             evaluateReturnFromIdle()
             idleStartedAt = nil
-            meetingDuringIdle = false
-        }
-    }
-
-    /// Called periodically while idle so a meeting that starts mid-absence counts.
-    private func noteMeetingWhileIdle() {
-        if idleStartedAt != nil, meetingDetector?.state.isInMeeting == true {
-            meetingDuringIdle = true
+            inCallWhenIdleBegan = false
         }
     }
 
@@ -164,22 +200,72 @@ final class EntryCompletionService {
         guard let idleStart = idleStartedAt else { return }
         guard let controller = timerController, controller.isRunning,
               let entry = controller.runningEntry else { return }
-        if meetingDuringIdle || meetingDetector?.state.isInMeeting == true {
-            AppLogger.log("timer", level: .info, "completion_away_skipped reason=meeting")
-            return
-        }
         let now = Date()
         // Only the part of the absence that overlaps the entry matters.
         let awayStart = max(idleStart, entry.startAt)
         let awaySeconds = now.timeIntervalSince(awayStart)
-        guard awaySeconds >= TimeInterval(promptIdleMinutes) * 60 else { return }
-        let title = entry.title.isEmpty ? "(untitled)" : entry.title
-        pendingPrompt = PendingPrompt(
-            kind: .awayQuestion(from: awayStart, to: now),
-            message: "You were away \(DurationFormat.hoursMinutes(awaySeconds)) while '\(title)' was running.",
-            entryId: entry.id
+        let decision = Self.awayDecision(
+            awaySeconds: awaySeconds,
+            sawLockOrSleep: idleMonitor?.currentIdleSawLockOrSleep ?? true,
+            inCallWhenIdleBegan: inCallWhenIdleBegan,
+            inCallNow: meetingDetector?.state.isInMeeting == true,
+            minAwaySeconds: TimeInterval(promptIdleMinutes) * 60,
+            longAwaySeconds: TimeInterval(longAwayMinutes) * 60
         )
-        AppLogger.log("timer", level: .info, "completion_away_prompt seconds=\(Int(awaySeconds))")
+        if decision == .presentOnCall {
+            AppLogger.log("timer", level: .info, "completion_away_skipped reason=call")
+        }
+        guard decision == .remove || decision == .stop else { return }
+        let title = entry.title.isEmpty ? "(untitled)" : entry.title
+        let away = DurationFormat.hoursMinutes(awaySeconds)
+
+        let action: AwayNotice.Action
+        let message: String
+        if decision == .stop {
+            let entryID = entry.id
+            controller.stop(at: awayStart)
+            action = .stopped(entryID: entryID)
+            message = "Stopped '\(title)' when you left — you were away \(away)."
+        } else {
+            switch controller.excludeAwayTime(from: awayStart, to: now) {
+            case let .split(originalID, continuationID)?:
+                action = .split(originalID: originalID, continuationID: continuationID)
+            case let .trimmedStart(entryID, originalStart)?:
+                action = .trimmedStart(entryID: entryID, originalStart: originalStart)
+            case nil:
+                return
+            }
+            message = "Removed \(away) away from '\(title)'."
+        }
+        awayNotice = AwayNotice(action: action, message: message, from: awayStart, to: now, at: now)
+        AppLogger.log("timer", level: .info, "completion_away_removed seconds=\(Int(awaySeconds)) stopped=\(decision == .stop)")
+    }
+
+    enum AwayDecision: Equatable {
+        /// Too short to matter.
+        case ignore
+        /// Listening on a call: present, not away.
+        case presentOnCall
+        /// Drop the away span and carry on with the task.
+        case remove
+        /// Close the entry where the absence began.
+        case stop
+    }
+
+    /// Listening on a call without touching the keyboard is still work — but only with
+    /// the screen unlocked, and with the call there both when the quiet began and on
+    /// return. A lock or sleep always means the user was away.
+    static func awayDecision(
+        awaySeconds: TimeInterval,
+        sawLockOrSleep: Bool,
+        inCallWhenIdleBegan: Bool,
+        inCallNow: Bool,
+        minAwaySeconds: TimeInterval,
+        longAwaySeconds: TimeInterval
+    ) -> AwayDecision {
+        if !sawLockOrSleep && inCallWhenIdleBegan && inCallNow { return .presentOnCall }
+        if awaySeconds < minAwaySeconds { return .ignore }
+        return awaySeconds >= longAwaySeconds ? .stop : .remove
     }
 
     // MARK: - Tick (drift + periodic)
@@ -187,10 +273,7 @@ final class EntryCompletionService {
     private func tick() {
         guard let controller = timerController, controller.isRunning,
               let entry = controller.runningEntry else { return }
-        if idleMonitor?.isIdle == true {
-            noteMeetingWhileIdle()
-            return
-        }
+        if idleMonitor?.isIdle == true { return }
         guard pendingPrompt == nil else { return }
         guard isCooldownPassed(for: entry) else { return }
 

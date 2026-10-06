@@ -110,19 +110,17 @@ final class FocusArbiter {
         let now = deps.now()
         let config = settings()
 
-        // 0. Joining a calendar meeting is the one switch made without asking. The
-        //    evidence is unambiguous — the event is on the calendar and the microphone
-        //    is on — and the user asked for it. It stays undoable from the menu. It
-        //    runs before the idle check: listening on a call is not being away.
+        // 0. Nothing is worth doing while the user is away. Idle never changes an entry
+        //    here; `EntryCompletionService` removes the away time on return.
+        if deps.isIdle() { return }
+
+        // 1. Joining a calendar meeting is the one switch made without asking. The
+        //    evidence is unambiguous — a real meeting is on the calendar and the
+        //    microphone is on — and the user asked for it. It stays undoable.
         if phase != .consulting, let entry = deps.currentEntry(),
            switchToJoinedMeetingIfNeeded(entry: entry, now: now) {
             return
         }
-
-        // 1. Nothing is worth doing while the user is away. Idle never ends an entry:
-        //    the user always stops the timer, and `EntryCompletionService` asks about
-        //    the away time once they are back.
-        if deps.isIdle() { return }
 
         // 2. A question is outstanding. Only a hard boundary may supersede it, so an
         //    unanswered prompt cannot block a meeting from being noticed.

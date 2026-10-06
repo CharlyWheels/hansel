@@ -99,6 +99,7 @@ final class MeetingProvider {
     func trustworthyMeetingInProgress(at now: Date = Date()) -> Bool {
         meetings(from: now, to: now).contains {
             $0.start <= now && now < $0.end
+            && $0.isRealMeeting
             && AttendanceFilter.allowsColdStart($0, allowedCalendarIds: allowedCalendarIds)
         }
     }
