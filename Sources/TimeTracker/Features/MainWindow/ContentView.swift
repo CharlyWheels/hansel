@@ -4,6 +4,7 @@ import SwiftData
 enum SidebarItem: String, CaseIterable, Identifiable {
     case dashboard = "Dashboard"
     case todos = "Todos"
+    case meetings = "Meetings"
     case entries = "Entries"
     case timeline = "Timeline"
     case analytics = "Analytics"
@@ -19,6 +20,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .entries: return "list.bullet.rectangle"
         case .timeline: return "clock.arrow.circlepath"
         case .todos: return "checklist"
+        case .meetings: return "waveform"
         case .analytics: return "chart.bar"
         case .projects: return "folder"
         case .customers: return "person.2"
@@ -28,7 +30,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 
     var section: SidebarSection {
         switch self {
-        case .dashboard, .entries, .timeline, .todos: return .tracking
+        case .dashboard, .entries, .timeline, .todos, .meetings: return .tracking
         case .analytics: return .reports
         case .projects, .customers, .roles: return .catalog
         }
@@ -48,12 +50,13 @@ enum SidebarSection: String, CaseIterable, Identifiable {
 }
 
 struct ContentView: View {
-    @State private var selection: SidebarItem = .dashboard
+    @Environment(MainWindowRouter.self) private var router
     @Environment(FocusPromptCenter.self) private var prompts
 
     var body: some View {
+        @Bindable var router = router
         NavigationSplitView {
-            List(selection: $selection) {
+            List(selection: $router.selection) {
                 ForEach(SidebarSection.allCases) { section in
                     Section(section.rawValue) {
                         ForEach(section.items) { item in
@@ -81,11 +84,12 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        switch selection {
+        switch router.selection {
         case .dashboard: DashboardView()
         case .entries:   EntryListView()
         case .timeline:  DayTimelineView()
         case .todos:     TodosView()
+        case .meetings:  MeetingsView()
         case .analytics: AnalyticsView()
         case .projects:  ProjectsView()
         case .customers: CustomersView()

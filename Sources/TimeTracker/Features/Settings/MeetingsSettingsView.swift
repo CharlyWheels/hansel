@@ -1,0 +1,61 @@
+import SwiftUI
+import AppKit
+
+struct MeetingsSettingsView: View {
+    @Environment(MeetingImporter.self) private var importer
+
+    @AppStorage(MeetingImporter.enabledKey) private var importEnabled = true
+    @AppStorage(MeetingNotesArchive.pathDefaultsKey) private var archivePath = ""
+    @AppStorage(OwnerMatcher.namesDefaultsKey) private var myNames = ""
+
+    var body: some View {
+        Form {
+            Section("Meeting Notes archive") {
+                Toggle("Import meetings recorded with Meeting Notes", isOn: $importEnabled)
+                LabeledContent("Folder") {
+                    HStack {
+                        Text(MeetingNotesArchive.resolvedRoot().path)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(.secondary)
+                        Button("Choose…", action: chooseFolder)
+                        if !archivePath.isEmpty {
+                            Button("Follow Meeting Notes") { archivePath = "" }
+                        }
+                    }
+                }
+                HStack {
+                    Button("Scan now") { Task { await importer.scan() } }
+                        .disabled(!importEnabled || importer.isScanning)
+                    if let at = importer.lastScanAt {
+                        Text("Last scan \(at.formatted(date: .omitted, time: .shortened))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if let error = importer.lastError {
+                    Text(error).font(.caption).foregroundStyle(.orange)
+                }
+                Text("Hansel reads finished meetings from the folder Meeting Notes archives to (it follows that app's setting unless you choose one here). It only reads; nothing in the archive is changed.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Proposed todos") {
+                TextField("Names you go by", text: $myNames, prompt: Text(NSFullUserName()))
+                Text("Comma-separated, e.g. \"Carlos, Carlos Rueda\". Meeting Notes does not know who is speaking; when its summary assigns a task to someone whose name is not one of these, the proposal is marked as probably for someone else.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = MeetingNotesArchive.resolvedRoot()
+        panel.prompt = "Use folder"
+        if panel.runModal() == .OK, let url = panel.url {
+            archivePath = url.path
+        }
+    }
+}

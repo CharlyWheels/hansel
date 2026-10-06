@@ -40,6 +40,7 @@ struct TodosView: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 0) {
                 addRow.padding()
+                ProposalInboxSection()
                 Divider()
                 List {
                     ForEach(rootTodos) { todo in

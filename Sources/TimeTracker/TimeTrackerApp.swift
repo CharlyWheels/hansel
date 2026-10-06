@@ -33,6 +33,9 @@ struct TimeTrackerApp: App {
     @State private var focusStore: FocusStore
     @State private var promptCenter: FocusPromptCenter
     @State private var arbiter: FocusArbiter
+    @State private var meetingImporter: MeetingImporter
+    @State private var proposalService: ProposalService
+    @State private var router = MainWindowRouter()
 
     init() {
         // A second instance would open the same SQLite store, and if that failed it
@@ -157,6 +160,14 @@ struct TimeTrackerApp: App {
         _focusStore = State(wrappedValue: store)
         _promptCenter = State(wrappedValue: prompts)
         _arbiter = State(wrappedValue: focusArbiter)
+        let importer = MeetingImporter(modelContext: ctx)
+        _meetingImporter = State(wrappedValue: importer)
+        let proposals = ProposalService(modelContext: ctx)
+        importer.onImported = { [weak proposals] record, document in
+            proposals?.meetingImported(record, document: document)
+        }
+        importer.onRemoved = { [weak proposals] ids in proposals?.meetingsRemoved(ids) }
+        _proposalService = State(wrappedValue: proposals)
         AppLogger.ui.info("TimeTrackerApp launched")
         AppLogger.log("ui", level: .info, "launch")
 
@@ -164,7 +175,7 @@ struct TimeTrackerApp: App {
             Self.bootServicesOnce(
                 container: c, idle: idle, audio: audio, meeting: meeting, activity: activity,
                 watchdog: watch, completion: completion, arbiter: focusArbiter, prompts: prompts,
-                meetings: meetings, calendar: calendar
+                meetings: meetings, calendar: calendar, importer: importer
             )
         }
     }
@@ -175,6 +186,9 @@ struct TimeTrackerApp: App {
                 .environment(controller)
                 .environment(completionService)
                 .environment(promptCenter)
+                .environment(meetingImporter)
+                .environment(proposalService)
+                .environment(router)
                 .modelContainer(container)
         } label: {
             MenuBarLabel()
@@ -189,6 +203,9 @@ struct TimeTrackerApp: App {
                 .environment(controller)
                 .environment(completionService)
                 .environment(promptCenter)
+                .environment(meetingImporter)
+                .environment(proposalService)
+                .environment(router)
                 .modelContainer(container)
                 .frame(minWidth: 960, minHeight: 640)
                 // Fallback only; the app delegate normally starts everything first.
@@ -200,6 +217,9 @@ struct TimeTrackerApp: App {
                 .environment(controller)
                 .environment(completionService)
                 .environment(promptCenter)
+                .environment(meetingImporter)
+                .environment(proposalService)
+                .environment(router)
                 .modelContainer(container)
                 .frame(width: 760, height: 520)
         }
@@ -245,7 +265,8 @@ struct TimeTrackerApp: App {
         arbiter: FocusArbiter,
         prompts: FocusPromptCenter,
         meetings: MeetingProvider,
-        calendar: CalendarService
+        calendar: CalendarService,
+        importer: MeetingImporter
     ) {
         guard !servicesStarted else { return }
         servicesStarted = true
@@ -259,6 +280,7 @@ struct TimeTrackerApp: App {
         completion.start()
         arbiter.start()
         prompts.start()
+        importer.start()
         Task {
             await meetings.start()
             calendar.start()
