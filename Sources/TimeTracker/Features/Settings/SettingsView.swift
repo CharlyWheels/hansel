@@ -10,6 +10,8 @@ struct SettingsView: View {
                 .tabItem { Label("Permissions", systemImage: "hand.raised") }
             CalendarSettingsView()
                 .tabItem { Label("Calendar", systemImage: "calendar") }
+            MeetingsSettingsView()
+                .tabItem { Label("Meetings", systemImage: "waveform") }
             AISettingsView()
                 .tabItem { Label("AI", systemImage: "sparkles") }
             DebugSettingsView()

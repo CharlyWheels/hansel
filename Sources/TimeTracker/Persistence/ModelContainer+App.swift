@@ -12,7 +12,9 @@ enum AppModelContainer {
         CalendarEventLink.self,
         ClassificationRule.self,
         Todo.self,
-        FocusDecision.self
+        FocusDecision.self,
+        MeetingRecord.self,
+        TodoProposal.self
     ])
 
     /// Where the previous store was moved if it could not be opened, so the UI can

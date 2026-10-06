@@ -7,6 +7,8 @@ struct MenuBarContent: View {
     @Environment(FocusPromptCenter.self) private var prompts
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openWindow) private var openWindow
+    @Environment(MainWindowRouter.self) private var router
+    @Query(TodoProposal.pendingDescriptor) private var pendingProposals: [TodoProposal]
 
     @Query(sort: [SortDescriptor(\Project.name)]) private var projects: [Project]
     @Query(sort: [SortDescriptor(\Role.name)]) private var roles: [Role]
@@ -62,6 +64,10 @@ struct MenuBarContent: View {
                 idleSection
             }
             Divider()
+            if !pendingProposals.isEmpty {
+                proposalsRow
+                Divider()
+            }
             todosSection
             Divider()
             recentSection
@@ -425,6 +431,34 @@ struct MenuBarContent: View {
         }
         .labelsHidden()
         .pickerStyle(.menu)
+    }
+
+    // MARK: - Proposals from meetings
+
+    private var proposalsRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "tray.and.arrow.down")
+                .foregroundStyle(Color.accentColor)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(pendingProposals.count == 1
+                     ? "1 todo proposed from a meeting"
+                     : "\(pendingProposals.count) todos proposed from meetings")
+                    .font(.callout)
+                if let latest = pendingProposals.first {
+                    Text(latest.meetingTitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer()
+            Button("Review") {
+                router.selection = .todos
+                openWindow(id: "main")
+                NSApp.activate(ignoringOtherApps: true)
+            }
+            .buttonStyle(.bordered)
+        }
     }
 
     // MARK: - Todos
