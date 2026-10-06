@@ -140,6 +140,21 @@ final class TodoProposalTests: XCTestCase {
         XCTAssertNotEqual(proposal.title, proposal.suggestedTitle, "the correction is kept to learn from")
     }
 
+    func test_oldMeetingsProposeNothing() throws {
+        let container = try AppModelContainer.inMemory()
+        let ctx = container.mainContext
+        let service = ProposalService(modelContext: ctx)
+        let doc = try MeetingNotesDocument.decode(MeetingNotesImportTests.sampleJSON())
+        let record = MeetingRecord(id: doc.id, title: doc.title, startedAt: doc.startedAt, folderPath: "/a/m", fileModifiedAt: Date())
+        ctx.insert(record)
+
+        service.meetingImported(record, document: doc, now: doc.startedAt.addingTimeInterval(30 * 86_400))
+
+        XCTAssertTrue(service.proposals(forMeeting: record.id).isEmpty)
+        XCTAssertNotNil(record.proposalsCreatedAt, "and never will, even if the file changes")
+        XCTAssertNotNil(record.aiEnrichedAt, "no model call for it either")
+    }
+
     func test_declineAndRestore() throws {
         // Held for the whole test: a context outlived by its container crashes.
         let container = try AppModelContainer.inMemory()

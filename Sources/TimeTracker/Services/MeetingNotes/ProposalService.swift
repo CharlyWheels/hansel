@@ -21,8 +21,18 @@ final class ProposalService {
 
     // MARK: - From meetings
 
-    func meetingImported(_ record: MeetingRecord, document: MeetingNotesDocument) {
+    /// Meetings older than this are shown but propose nothing: a first import of a long
+    /// archive must not fill the inbox with tasks long since done or forgotten.
+    static let proposalHorizonDays: Double = 14
+
+    func meetingImported(_ record: MeetingRecord, document: MeetingNotesDocument, now: Date = Date()) {
         guard record.proposalsCreatedAt == nil else { return }
+        if record.startedAt < now.addingTimeInterval(-Self.proposalHorizonDays * 86_400) {
+            record.proposalsCreatedAt = now
+            record.aiEnrichedAt = now
+            try? modelContext.save()
+            return
+        }
         // No insights yet means no action item list to read; wait for the file to
         // change, unless the meeting finished without a summary at all, which the model
         // may then cover from the transcript.

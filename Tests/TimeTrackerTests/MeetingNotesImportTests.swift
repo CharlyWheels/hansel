@@ -13,8 +13,14 @@ final class MeetingNotesImportTests: XCTestCase {
 
     /// Shaped like Meeting Notes writes it: sorted keys, ISO 8601 dates, plus fields
     /// Hansel does not know about and one action item it cannot read.
+    /// Dated yesterday by default, so proposal rules that look at a meeting's age keep
+    /// behaving the same whenever the suite runs.
     nonisolated static func sampleJSON(id: UUID = meetingID, title: String = "Roadmap planning",
-                           withInsights: Bool = true) -> Data {
+                           withInsights: Bool = true,
+                           startedAt: Date = Date().addingTimeInterval(-86_400)) -> Data {
+        let iso = ISO8601DateFormatter()
+        let start = iso.string(from: startedAt)
+        let end = iso.string(from: startedAt.addingTimeInterval(32 * 60))
         let insights = withInsights ? """
         ,
           "insights" : {
@@ -48,10 +54,10 @@ final class MeetingNotesImportTests: XCTestCase {
             "scheduledStart" : "2026-10-06T10:30:00Z"
           },
           "codexThreadID" : null,
-          "endedAt" : "2026-10-06T11:02:00Z",
+          "endedAt" : "\(end)",
           "futureField" : { "anything" : true },
           "id" : "\(id.uuidString)",
-          "startedAt" : "2026-10-06T10:30:00Z",
+          "startedAt" : "\(start)",
           "status" : "complete",
           "title" : "\(title)",
           "transcript" : [
