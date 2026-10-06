@@ -21,6 +21,8 @@ final class MeetingImporter {
     @ObservationIgnored var onImported: ((MeetingRecord, MeetingNotesDocument) -> Void)?
     /// Called with the ids of meetings that disappeared from the archive.
     @ObservationIgnored var onRemoved: (([UUID]) -> Void)?
+    /// Called after every completed scan, for work that retries on a schedule.
+    @ObservationIgnored var onScanFinished: (() -> Void)?
 
     @ObservationIgnored private let modelContext: ModelContext
     @ObservationIgnored private var timer: Timer?
@@ -75,6 +77,7 @@ final class MeetingImporter {
         }.value
 
         apply(loaded: result.loaded, presentPaths: result.paths, now: now)
+        onScanFinished?()
         if result.failures > 0 {
             lastError = "\(result.failures) meeting file(s) could not be read"
             AppLogger.log("meetings", level: .error, "decode_failed count=\(result.failures)")

@@ -9,11 +9,11 @@ final class MeetingNotesImportTests: XCTestCase {
 
     // MARK: - Fixtures
 
-    static let meetingID = UUID(uuidString: "6F2C1D7E-3B1A-4C55-9E0B-1A2B3C4D5E6F")!
+    nonisolated static let meetingID = UUID(uuidString: "6F2C1D7E-3B1A-4C55-9E0B-1A2B3C4D5E6F")!
 
     /// Shaped like Meeting Notes writes it: sorted keys, ISO 8601 dates, plus fields
     /// Hansel does not know about and one action item it cannot read.
-    static func sampleJSON(id: UUID = meetingID, title: String = "Roadmap planning",
+    nonisolated static func sampleJSON(id: UUID = meetingID, title: String = "Roadmap planning",
                            withInsights: Bool = true) -> Data {
         let insights = withInsights ? """
         ,

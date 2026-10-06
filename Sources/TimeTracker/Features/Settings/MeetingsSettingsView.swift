@@ -7,6 +7,8 @@ struct MeetingsSettingsView: View {
     @AppStorage(MeetingImporter.enabledKey) private var importEnabled = true
     @AppStorage(MeetingNotesArchive.pathDefaultsKey) private var archivePath = ""
     @AppStorage(OwnerMatcher.namesDefaultsKey) private var myNames = ""
+    @AppStorage(MeetingTaskEnricher.enabledKey) private var aiEnabled = false
+    @AppStorage(MeetingTaskEnricher.includeTranscriptKey) private var aiTranscript = true
 
     var body: some View {
         Form {
@@ -41,6 +43,13 @@ struct MeetingsSettingsView: View {
             Section("Proposed todos") {
                 TextField("Names you go by", text: $myNames, prompt: Text(NSFullUserName()))
                 Text("Comma-separated, e.g. \"Carlos, Carlos Rueda\". Meeting Notes does not know who is speaking; when its summary assigns a task to someone whose name is not one of these, the proposal is marked as probably for someone else.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Refine proposals with AI") {
+                Toggle("Let the AI provider refine proposed todos", isOn: $aiEnabled)
+                Toggle("Include what was said around each task", isOn: $aiTranscript)
+                    .disabled(!aiEnabled)
+                Text("One call per meeting to the default provider in Settings → AI: it rewrites titles, picks a project when your catalog rules found none, sets a due date only when one was said, and flags tasks that are someone else's. This sends the meeting title, participants, summary and action items\(aiTranscript ? ", plus short transcript excerpts (or the whole transcript when there is no action item list)" : ""). Check that your organisation allows sending meeting content to that provider. Proposals you already edited are never changed.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

@@ -11,6 +11,7 @@ struct MeetingDetailView: View {
     @Query private var customers: [Customer]
     @Environment(\.modelContext) private var modelContext
     @Environment(ProposalService.self) private var service
+    @Environment(MeetingTaskEnricher.self) private var enricher
 
     @State private var document: MeetingNotesDocument?
     @State private var loadError: String?
@@ -157,7 +158,20 @@ struct MeetingDetailView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     sectionTitle("Proposed todos")
+                    if enricher.inFlight.contains(meeting.id) {
+                        ProgressView().controlSize(.small)
+                        Text("Refining with AI…").font(.caption).foregroundStyle(.secondary)
+                    }
                     Spacer()
+                    if MeetingTaskEnricher.isEnabled, meeting.aiEnrichedAt == nil,
+                       !enricher.inFlight.contains(meeting.id), let document,
+                       proposals.contains(where: \.isPending) {
+                        Button("Refine with AI") {
+                            meeting.aiAttempts = 0
+                            Task { await enricher.enrich(meeting, document: document) }
+                        }
+                        .controlSize(.small)
+                    }
                     if proposals.contains(where: \.isPending) {
                         Button("Decline remaining") { service.declineAll(forMeeting: meeting.id) }
                             .controlSize(.small)

@@ -36,6 +36,7 @@ struct TimeTrackerApp: App {
     @State private var meetingImporter: MeetingImporter
     @State private var proposalService: ProposalService
     @State private var router = MainWindowRouter()
+    @State private var meetingEnricher: MeetingTaskEnricher
 
     init() {
         // A second instance would open the same SQLite store, and if that failed it
@@ -167,6 +168,12 @@ struct TimeTrackerApp: App {
             proposals?.meetingImported(record, document: document)
         }
         importer.onRemoved = { [weak proposals] ids in proposals?.meetingsRemoved(ids) }
+        let enricher = MeetingTaskEnricher(modelContext: ctx)
+        proposals.onProposalsCreated = { [weak enricher] record, document in
+            enricher?.meetingReady(record, document: document)
+        }
+        importer.onScanFinished = { [weak enricher] in enricher?.retryDue() }
+        _meetingEnricher = State(wrappedValue: enricher)
         _proposalService = State(wrappedValue: proposals)
         AppLogger.ui.info("TimeTrackerApp launched")
         AppLogger.log("ui", level: .info, "launch")
@@ -189,6 +196,7 @@ struct TimeTrackerApp: App {
                 .environment(meetingImporter)
                 .environment(proposalService)
                 .environment(router)
+                .environment(meetingEnricher)
                 .modelContainer(container)
         } label: {
             MenuBarLabel()
@@ -206,6 +214,7 @@ struct TimeTrackerApp: App {
                 .environment(meetingImporter)
                 .environment(proposalService)
                 .environment(router)
+                .environment(meetingEnricher)
                 .modelContainer(container)
                 .frame(minWidth: 960, minHeight: 640)
                 // Fallback only; the app delegate normally starts everything first.
@@ -220,6 +229,7 @@ struct TimeTrackerApp: App {
                 .environment(meetingImporter)
                 .environment(proposalService)
                 .environment(router)
+                .environment(meetingEnricher)
                 .modelContainer(container)
                 .frame(width: 760, height: 520)
         }

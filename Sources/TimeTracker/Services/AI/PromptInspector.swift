@@ -13,6 +13,7 @@ final class PromptInspector {
     enum Kind: String, CaseIterable, Identifiable {
         case draft = "Activity draft"
         case boundary = "Task switch"
+        case meetingTasks = "Meeting tasks"
         var id: String { rawValue }
     }
 
@@ -39,13 +40,14 @@ extension AIProvider {
         kind: PromptInspector.Kind,
         system: String,
         user: String,
-        effort: AIEffort = .low
+        effort: AIEffort = .low,
+        maxTokens: Int? = nil
     ) async throws -> String {
         let at = Date()
         let provider = displayName
         do {
             let text = try await complete(system: system, user: user,
-                                          maxTokens: Self.answerTokenCeiling, effort: effort)
+                                          maxTokens: maxTokens ?? Self.answerTokenCeiling, effort: effort)
             await MainActor.run {
                 PromptInspector.shared.record(.init(kind: kind, at: at, provider: provider,
                                                     system: system, user: user, response: text))

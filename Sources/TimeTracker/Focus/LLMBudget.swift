@@ -75,18 +75,25 @@ struct LLMBudget: Equatable, Sendable {
     // An in-memory budget resets on every relaunch, so "at most N calls a day" was only
     // true per process. The timestamps are tiny; UserDefaults is enough.
 
-    private static let defaultsKey = "llmBudget.timestamps"
+    static let defaultsKey = "llmBudget.timestamps"
 
-    static func loadPersisted(defaults: UserDefaults = .standard, now: Date = Date()) -> LLMBudget {
-        var budget = LLMBudget()
-        let raw = defaults.array(forKey: defaultsKey) as? [Double] ?? []
+    /// `budget` carries the limits; only its timestamps are restored. A separate `key`
+    /// gives a feature its own allowance (meeting tasks do not eat into task switches).
+    static func loadPersisted(
+        defaults: UserDefaults = .standard,
+        now: Date = Date(),
+        key: String = defaultsKey,
+        budget limits: LLMBudget = LLMBudget()
+    ) -> LLMBudget {
+        var budget = limits
+        let raw = defaults.array(forKey: key) as? [Double] ?? []
         budget.timestamps = raw.map(Date.init(timeIntervalSince1970:)).sorted()
         budget.prune(now: now)
         return budget
     }
 
-    func persist(defaults: UserDefaults = .standard) {
-        defaults.set(timestamps.map(\.timeIntervalSince1970), forKey: Self.defaultsKey)
+    func persist(defaults: UserDefaults = .standard, key: String = defaultsKey) {
+        defaults.set(timestamps.map(\.timeIntervalSince1970), forKey: key)
     }
 
     mutating func prune(now: Date) {
