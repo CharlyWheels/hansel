@@ -19,7 +19,19 @@ struct TodoDetailView: View {
 
     var body: some View {
         Form {
-            Section("Todo") {
+            if let parent = todo.parent {
+                Section {
+                    // Subtasks are todos like any other; this is the way back up.
+                    NavigationLink(value: parent) {
+                        Label {
+                            Text("Part of ") + Text(parent.breadcrumbPath).bold()
+                        } icon: {
+                            Image(systemName: "arrow.turn.left.up")
+                        }
+                    }
+                }
+            }
+            Section(todo.parent == nil ? "Todo" : "Subtask") {
                 TextField("Title", text: $todo.title)
                 TextField(
                     "Notes",
@@ -47,7 +59,7 @@ struct TodoDetailView: View {
                     }
                 }
                 Picker("Related project", selection: $todo.relatedProject) {
-                    Text("None").tag(Optional<Project>.none)
+                    Text(inheritedLabel).tag(Optional<Project>.none)
                     ForEach(projects) { project in
                         Text(project.name).tag(Optional(project))
                     }
@@ -68,37 +80,61 @@ struct TodoDetailView: View {
                 }
             }
 
-            Section("Subtasks") {
+            Section {
                 ForEach(todo.orderedSubtasks) { sub in
-                    HStack {
-                        Button {
-                            sub.isCompleted.toggle()
-                            sub.completedAt = sub.isCompleted ? Date() : nil
-                            try? modelContext.save()
-                        } label: {
-                            Image(systemName: sub.isCompleted ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(sub.isCompleted ? .green : .secondary)
+                    // Opens the subtask with this same page: notes, deadline, project and
+                    // its own subtasks, like any todo.
+                    NavigationLink(value: sub) {
+                        HStack(spacing: 8) {
+                            Button {
+                                sub.isCompleted.toggle()
+                                sub.completedAt = sub.isCompleted ? Date() : nil
+                                try? modelContext.save()
+                            } label: {
+                                Image(systemName: sub.isCompleted ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(sub.isCompleted ? .green : .secondary)
+                            }
+                            .buttonStyle(.borderless)
+                            .help(sub.isCompleted ? "Mark not done" : "Mark done")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(sub.title.isEmpty ? "(untitled)" : sub.title)
+                                    .strikethrough(sub.isCompleted)
+                                    .foregroundStyle(sub.isCompleted ? .secondary : .primary)
+                                if let notes = sub.notes, !notes.isEmpty {
+                                    Text(notes).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }
+                            Spacer()
+                            if let project = sub.relatedProject {
+                                Chip(text: project.name, systemImage: "folder", color: project.displayColor)
+                            }
+                            if !sub.subtasks.isEmpty {
+                                let done = sub.subtasks.filter(\.isCompleted).count
+                                Chip(text: "\(done)/\(sub.subtasks.count)", systemImage: "list.bullet")
+                            }
+                            DueDateBadge(todo: sub)
                         }
-                        .buttonStyle(.borderless)
-                        Text(sub.title.isEmpty ? "(untitled)" : sub.title)
-                            .strikethrough(sub.isCompleted)
-                        Spacer()
-                        Button(role: .destructive) {
+                    }
+                    .contextMenu {
+                        Button("Delete", role: .destructive) {
                             modelContext.delete(sub)
                             try? modelContext.save()
-                        } label: {
-                            Image(systemName: "trash")
                         }
-                        .buttonStyle(.borderless)
                     }
                 }
-                HStack {
-                    TextField("New subtask", text: $newSubtaskTitle)
-                        .textFieldStyle(.roundedBorder)
+                HStack(spacing: 8) {
+                    Image(systemName: "plus.circle.fill").foregroundStyle(Color.accentColor)
+                    TextField("Add a subtask and press Return", text: $newSubtaskTitle)
+                        .textFieldStyle(.plain)
                         .onSubmit(addSubtask)
-                    Button("Add", action: addSubtask)
-                        .disabled(newSubtaskTitle.trimmingCharacters(in: .whitespaces).isEmpty)
+                    if !newSubtaskTitle.trimmingCharacters(in: .whitespaces).isEmpty {
+                        Button("Add", action: addSubtask).controlSize(.small)
+                    }
                 }
+            } header: {
+                Text("Subtasks")
+            } footer: {
+                Text("Open a subtask to give it notes, a deadline, a project or its own subtasks. Right-click to delete.")
             }
         }
         .formStyle(.grouped)
@@ -108,6 +144,14 @@ struct TodoDetailView: View {
         .onChange(of: todo.isCompleted) { _, _ in try? modelContext.save() }
         .onChange(of: todo.relatedProject) { _, _ in try? modelContext.save() }
         .onChange(of: todo.dueAt) { _, _ in try? modelContext.save() }
+    }
+
+    /// What "no project" means here: none, or the one inherited from a parent.
+    private var inheritedLabel: String {
+        if todo.relatedProject == nil, let inherited = todo.parent?.inheritedProject {
+            return "Same as parent (\(inherited.name))"
+        }
+        return todo.parent == nil ? "None" : "Same as parent"
     }
 
     private var parentBinding: Binding<Todo?> {
