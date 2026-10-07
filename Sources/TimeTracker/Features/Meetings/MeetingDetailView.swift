@@ -47,7 +47,10 @@ struct MeetingDetailView: View {
             VStack(alignment: .leading, spacing: 20) {
                 header
                 contextSection
-                SpeakersSection(meeting: meeting)
+                SpeakersSection(meeting: meeting, lines: (document?.transcript ?? []).compactMap { turn in
+                    guard let source = turn.source, let end = turn.end else { return nil }
+                    return SpeakerClips.Line(track: source, start: turn.start, end: end, text: turn.text)
+                })
                 proposalsSection
                 if let error = loadError {
                     Label(error, systemImage: "exclamationmark.triangle")

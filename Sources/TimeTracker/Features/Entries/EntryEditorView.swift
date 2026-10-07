@@ -171,6 +171,8 @@ struct EntryEditorView: View {
         // Only an edit to the running entry should hold the arbiter off it.
         if isRunning, controller.runningEntry?.id == entry.id { controller.noteManualEdit() }
         try? modelContext.save()
+        // A meeting shows the name its entry was corrected to.
+        MeetingTitleSync.entrySaved(entry, context: modelContext)
         dismiss()
     }
 

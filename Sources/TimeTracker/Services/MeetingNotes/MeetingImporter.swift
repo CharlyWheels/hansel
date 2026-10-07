@@ -129,7 +129,7 @@ final class MeetingImporter {
     }
 
     static func update(_ record: MeetingRecord, from doc: MeetingNotesDocument, entry: MeetingNotesArchive.Entry) {
-        record.title = doc.title
+        if !record.titleIsUserSet { record.title = doc.title }
         record.startedAt = doc.startedAt
         record.endedAt = doc.endedAt
         record.status = doc.status ?? "complete"
@@ -155,9 +155,11 @@ final class MeetingImporter {
             predicate: #Predicate { $0.startAt >= from }
         ))) ?? []
         for record in unlinked {
-            record.linkedEntryID = MeetingContextResolver.bestEntry(
+            let entry = MeetingContextResolver.bestEntry(
                 start: record.startedAt, end: record.endedAt, entries: entries, now: now
-            )?.id
+            )
+            record.linkedEntryID = entry?.id
+            if let entry { MeetingTitleSync.adoptConfirmedTitle(of: entry, into: record) }
         }
     }
 }

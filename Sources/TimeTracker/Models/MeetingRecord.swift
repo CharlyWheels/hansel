@@ -14,6 +14,11 @@ final class MeetingRecord {
     /// Meeting Notes' own id; stable across renames and folder moves.
     @Attribute(.unique) var id: UUID
     var title: String
+    /// The user named this meeting (through its time entry), so re-reading Meeting
+    /// Notes' file must not put its own title back. Meeting Notes titles a recording
+    /// after the calendar event chosen when recording started, which can be the wrong
+    /// one of several overlapping invitations.
+    var titleIsUserSet: Bool = false
     var startedAt: Date
     var endedAt: Date?
     var status: String
