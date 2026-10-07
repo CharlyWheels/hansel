@@ -10,6 +10,8 @@ struct TodoDetailView: View {
     @Query(sort: [SortDescriptor(\Project.name)]) private var projects: [Project]
 
     @State private var newSubtaskTitle: String = ""
+    @State private var deleting: Todo?
+    @Environment(\.dismiss) private var dismiss
 
     private var parentCandidates: [Todo] {
         // `todo.contains` already returns true for self and descendants, so excluding
@@ -116,10 +118,7 @@ struct TodoDetailView: View {
                         }
                     }
                     .contextMenu {
-                        Button("Delete", role: .destructive) {
-                            modelContext.delete(sub)
-                            try? modelContext.save()
-                        }
+                        Button("Delete…", role: .destructive) { deleting = sub }
                     }
                 }
                 HStack(spacing: 8) {
@@ -134,10 +133,22 @@ struct TodoDetailView: View {
             } header: {
                 Text("Subtasks")
             } footer: {
-                Text("Open a subtask to give it notes, a deadline, a project or its own subtasks. Right-click to delete.")
+                Text("Open a subtask to give it notes, a deadline, a project or its own subtasks. Right-click a subtask to delete it.")
             }
         }
         .formStyle(.grouped)
+        .toolbar {
+            ToolbarItem(placement: .destructiveAction) {
+                Button(role: .destructive) { deleting = todo } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                .help("Delete this todo")
+            }
+        }
+        // Leave the page only when its own todo was deleted, not one of its subtasks.
+        .confirmingTodoDelete($deleting, context: modelContext) { [todoID = todo.id] deleted in
+            if deleted == todoID { dismiss() }
+        }
         .navigationTitle(todo.title.isEmpty ? "Todo" : todo.title)
         .onChange(of: todo.title) { _, _ in try? modelContext.save() }
         .onChange(of: todo.notes) { _, _ in try? modelContext.save() }

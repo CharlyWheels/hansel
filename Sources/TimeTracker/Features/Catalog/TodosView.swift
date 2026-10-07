@@ -33,6 +33,7 @@ struct TodosView: View {
     @State private var pendingDelete: IndexSet?
     /// The todos opened on top of the list, so one click can go back to it.
     @State private var path = NavigationPath()
+    @State private var deleting: Todo?
 
     private var rootTodos: [Todo] {
         allTodos.filter { $0.parent == nil && (showCompleted || !$0.isCompleted) }
@@ -56,7 +57,8 @@ struct TodosView: View {
                             todo: todo,
                             depth: 0,
                             showCompleted: showCompleted,
-                            onToggle: toggleCompleted
+                            onToggle: toggleCompleted,
+                            onDelete: { deleting = $0 }
                         )
                     }
                     .onDelete { pendingDelete = $0 }
@@ -66,6 +68,7 @@ struct TodosView: View {
                                   affectedEntries: { $0.reduce(0) { sum, i in sum + rootTodos[i].linkedEntries.count } },
                                   perform: deleteRoots)
             }
+            .confirmingTodoDelete($deleting, context: modelContext)
             .navigationTitle("Todos")
             .toolbar {
                 ToolbarItem {
@@ -248,6 +251,11 @@ private struct TodoRowRecursive: View {
     let depth: Int
     let showCompleted: Bool
     let onToggle: (Todo) -> Void
+    let onDelete: (Todo) -> Void
+
+    private var deleteMenu: some View {
+        Button("Delete…", role: .destructive) { onDelete(todo) }
+    }
 
     var body: some View {
         let visibleChildren = todo.orderedSubtasks.filter { showCompleted || !$0.isCompleted }
@@ -255,6 +263,7 @@ private struct TodoRowRecursive: View {
             NavigationLink(value: todo) {
                 TodosView.rowSummary(todo, depth: depth, onToggle: onToggle)
             }
+            .contextMenu { deleteMenu }
         } else {
             DisclosureGroup {
                 ForEach(visibleChildren) { child in
@@ -262,13 +271,15 @@ private struct TodoRowRecursive: View {
                         todo: child,
                         depth: depth + 1,
                         showCompleted: showCompleted,
-                        onToggle: onToggle
+                        onToggle: onToggle,
+                        onDelete: onDelete
                     )
                 }
             } label: {
                 NavigationLink(value: todo) {
                     TodosView.rowSummary(todo, depth: depth, onToggle: onToggle)
                 }
+                .contextMenu { deleteMenu }
             }
         }
     }
