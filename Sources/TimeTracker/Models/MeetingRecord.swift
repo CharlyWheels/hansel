@@ -45,6 +45,12 @@ final class MeetingRecord {
     var speakerSegments: Data? = nil
     /// Set once the model was asked to name the speakers.
     var speakerNamesSuggestedAt: Date? = nil
+    /// Meeting Notes' summary rewritten with the speakers' names (Meeting Notes' own
+    /// file is never changed).
+    var namedSummary: String? = nil
+    /// The names it was written with, to rewrite it only when they change.
+    var namedSummaryNamesKey: String? = nil
+    var namedSummaryError: String? = nil
 
     init(
         id: UUID,

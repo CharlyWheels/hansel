@@ -15,6 +15,7 @@ final class PromptInspector {
         case boundary = "Task switch"
         case meetingTasks = "Meeting tasks"
         case speakerNames = "Speaker names"
+        case meetingSummary = "Meeting summary"
         var id: String { rawValue }
     }
 

@@ -67,8 +67,9 @@ struct MeetingNotesDocument: Decodable, Equatable {
         var decisions: [Evidence]
         var actionItems: [Evidence]
         var openQuestions: [Evidence]
+        var keyStatements: [Evidence] = []
 
-        enum CodingKeys: String, CodingKey { case summary, topics, decisions, actionItems, openQuestions }
+        enum CodingKeys: String, CodingKey { case summary, topics, decisions, actionItems, openQuestions, keyStatements }
 
         init(summary: String = "", topics: [Topic] = [], decisions: [Evidence] = [],
              actionItems: [Evidence] = [], openQuestions: [Evidence] = []) {
@@ -86,6 +87,7 @@ struct MeetingNotesDocument: Decodable, Equatable {
             decisions = c.lossyArray(Evidence.self, forKey: .decisions)
             actionItems = c.lossyArray(Evidence.self, forKey: .actionItems)
             openQuestions = c.lossyArray(Evidence.self, forKey: .openQuestions)
+            keyStatements = c.lossyArray(Evidence.self, forKey: .keyStatements)
         }
     }
 

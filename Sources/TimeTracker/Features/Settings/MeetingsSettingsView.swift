@@ -12,6 +12,7 @@ struct MeetingsSettingsView: View {
     @AppStorage(OwnerMatcher.namesDefaultsKey) private var myNames = ""
     @AppStorage(MeetingTaskEnricher.enabledKey) private var aiEnabled = false
     @AppStorage(MeetingTaskEnricher.includeTranscriptKey) private var aiTranscript = true
+    @AppStorage(NamedSummaryWriter.enabledKey) private var namedSummary = false
 
     var body: some View {
         Form {
@@ -57,6 +58,11 @@ struct MeetingsSettingsView: View {
                         .disabled(decisionCount == 0)
                 }
                 Text("When you move a task from a recurring meeting to another project, the next tasks from that meeting get that project. If you decline every proposal from a meeting, later ones say so. With AI refinement on, recent declines and title rewrites are shown to the model as examples.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Summaries with names") {
+                Toggle("Rewrite meeting summaries with the speakers' names", isOn: $namedSummary)
+                Text("Once voices have names, the AI provider rewrites Meeting Notes' summary so it says who said what (\"Carlos explained…\" instead of \"a speaker explained…\"). It sends the summary and the transcript labelled with names; never audio or voiceprints. One call per meeting, again only when the names change. The original stays available, and Meeting Notes' files are not changed.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Refine proposals with AI") {

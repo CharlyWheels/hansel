@@ -36,6 +36,7 @@ struct TimeTrackerApp: App {
     @State private var meetingImporter: MeetingImporter
     @State private var proposalService: ProposalService
     @State private var diarization: DiarizationService
+    @State private var summaryWriter: NamedSummaryWriter
     @State private var router = MainWindowRouter()
     @State private var meetingEnricher: MeetingTaskEnricher
 
@@ -201,6 +202,9 @@ struct TimeTrackerApp: App {
         _meetingEnricher = State(wrappedValue: enricher)
         _proposalService = State(wrappedValue: proposals)
         _diarization = State(wrappedValue: speakers)
+        let writer = NamedSummaryWriter(modelContext: ctx)
+        speakers.onLabelsChanged = { [weak writer] record in writer?.namesChanged(record) }
+        _summaryWriter = State(wrappedValue: writer)
         // Labels stored before a name was given (or by an older version) catch up.
         speakers.refreshAllLabels()
         AppLogger.ui.info("TimeTrackerApp launched")
@@ -224,6 +228,7 @@ struct TimeTrackerApp: App {
                 .environment(meetingImporter)
                 .environment(proposalService)
                 .environment(diarization)
+                .environment(summaryWriter)
                 .environment(router)
                 .environment(meetingEnricher)
                 .modelContainer(container)
@@ -243,6 +248,7 @@ struct TimeTrackerApp: App {
                 .environment(meetingImporter)
                 .environment(proposalService)
                 .environment(diarization)
+                .environment(summaryWriter)
                 .environment(router)
                 .environment(meetingEnricher)
                 .modelContainer(container)
@@ -259,6 +265,7 @@ struct TimeTrackerApp: App {
                 .environment(meetingImporter)
                 .environment(proposalService)
                 .environment(diarization)
+                .environment(summaryWriter)
                 .environment(router)
                 .environment(meetingEnricher)
                 .modelContainer(container)

@@ -21,6 +21,9 @@ struct MeetingDetailView: View {
     @State private var showTranscript = false
     @State private var transcriptFilter = ""
     @State private var editingEntry: TimeEntry?
+    @State private var showOriginalSummary = false
+    @Environment(NamedSummaryWriter.self) private var summaryWriter
+    @AppStorage(NamedSummaryWriter.enabledKey) private var namedSummaryEnabled = false
 
     init(meeting: MeetingRecord) {
         self.meeting = meeting
@@ -201,14 +204,59 @@ struct MeetingDetailView: View {
         }
     }
 
+    // MARK: - Named summary
+
+    /// With names, the original, or the way to get names in it.
+    @ViewBuilder
+    private var summaryControls: some View {
+        if summaryWriter.inFlight.contains(meeting.id) {
+            ProgressView().controlSize(.small)
+            Text("Adding names…").font(.caption).foregroundStyle(.secondary)
+        } else if meeting.namedSummary != nil {
+            Picker("", selection: $showOriginalSummary) {
+                Text("With names").tag(false)
+                Text("Original").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .fixedSize()
+            Button { Task { await summaryWriter.rewrite(meeting, force: true) } } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .buttonStyle(.borderless)
+            .help("Rewrite again with the current names")
+        } else if NamedSummaryWriter.namesKey(speakerTimeline) != nil {
+            Button("Rewrite with names") {
+                // An explicit click is consent for this meeting and turns the option on,
+                // so later meetings are rewritten when their voices get names.
+                namedSummaryEnabled = true
+                Task { await summaryWriter.rewrite(meeting, force: true) }
+            }
+            .buttonStyle(.borderless)
+            .font(.caption)
+            .help("Sends the summary and the transcript, labelled with names, to your AI provider")
+        }
+    }
+
     // MARK: - Notes
 
     @ViewBuilder
     private func insightsSections(_ insights: MeetingNotesDocument.Insights) -> some View {
         if !insights.summary.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                sectionTitle("Summary")
-                Text(insights.summary)
+                HStack {
+                    sectionTitle("Summary")
+                    Spacer()
+                    summaryControls
+                }
+                if let named = meeting.namedSummary, !showOriginalSummary {
+                    Text(named)
+                } else {
+                    Text(insights.summary)
+                }
+                if let error = meeting.namedSummaryError {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange)
+                }
             }
         }
         evidenceList("Decisions", insights.decisions, systemImage: "checkmark.seal")

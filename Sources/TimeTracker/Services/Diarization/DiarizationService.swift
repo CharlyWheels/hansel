@@ -175,7 +175,12 @@ final class DiarizationService {
         ProposalFactory.applySpeakers(timeline(for: record), to: proposals)
         MeetingContextResolver.applySpeakerCustomer(record: record, proposals: proposals, context: modelContext)
         refreshParticipants(record, speakers: speakers(of: meetingID))
+        onLabelsChanged?(record)
     }
+
+    /// Called after a meeting's names were re-applied, for work that depends on them
+    /// (the summary rewritten with names).
+    @ObservationIgnored var onLabelsChanged: ((MeetingRecord) -> Void)?
 
     /// After a person was renamed, merged or deleted: every meeting they may appear in.
     func refreshAllLabels() {
