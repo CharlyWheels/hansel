@@ -176,25 +176,13 @@ struct TimeTrackerApp: App {
         proposals.onProposalsCreated = { [weak speakers] record, _ in
             speakers?.meetingReady(record)
         }
-        let speakersChanged: (MeetingRecord) -> Void = { [weak ctx] record in
-            guard let ctx else { return }
-            let meetingID = record.id
-            let pending = (try? ctx.fetch(FetchDescriptor<TodoProposal>(
-                predicate: #Predicate { $0.meetingID == meetingID }
-            ))) ?? []
-            ProposalFactory.applySpeakers(DiarizationService.timeline(for: record, context: ctx), to: pending)
-            MeetingContextResolver.applySpeakerCustomer(record: record, proposals: pending, context: ctx)
-            try? ctx.save()
-        }
         let nameSuggester = SpeakerNameSuggester(modelContext: ctx)
         speakers.onFinished = { [weak enricher] record in
-            speakersChanged(record)
             Task { await nameSuggester.suggest(for: record) }
             if let document = try? MeetingNotesArchive.load(record.folderURL) {
                 enricher?.meetingReady(record, document: document)
             }
         }
-        speakers.onNamesChanged = speakersChanged
         importer.onScanFinished = { [weak enricher, weak speakers] in
             speakers?.retryDue()
             enricher?.retryDue()
@@ -213,6 +201,8 @@ struct TimeTrackerApp: App {
         _meetingEnricher = State(wrappedValue: enricher)
         _proposalService = State(wrappedValue: proposals)
         _diarization = State(wrappedValue: speakers)
+        // Labels stored before a name was given (or by an older version) catch up.
+        speakers.refreshAllLabels()
         AppLogger.ui.info("TimeTrackerApp launched")
         AppLogger.log("ui", level: .info, "launch")
 

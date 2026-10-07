@@ -7,6 +7,9 @@ struct MeetingDetailView: View {
     let meeting: MeetingRecord
 
     @Query private var proposals: [TodoProposal]
+    /// Observed so the transcript and the "said by" labels follow every naming change.
+    @Query private var meetingSpeakers: [MeetingSpeaker]
+    @Query private var people: [SpeakerProfile]
     @Query private var projects: [Project]
     @Query private var customers: [Customer]
     @Environment(\.modelContext) private var modelContext
@@ -24,6 +27,11 @@ struct MeetingDetailView: View {
         let id = meeting.id
         _proposals = Query(filter: #Predicate<TodoProposal> { $0.meetingID == id },
                            sort: [SortDescriptor(\TodoProposal.sourceKey)])
+        _meetingSpeakers = Query(filter: #Predicate<MeetingSpeaker> { $0.meetingID == id })
+    }
+
+    private var speakerTimeline: SpeakerTimeline? {
+        DiarizationService.timeline(for: meeting, speakers: meetingSpeakers, profiles: people)
     }
 
     private var linkedEntry: TimeEntry? {
@@ -240,6 +248,11 @@ struct MeetingDetailView: View {
                             Text(TranscriptGrouping.timestamp(t))
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
+                            if let who = speakerTimeline?.name(at: t) {
+                                Text("· \(who)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
@@ -258,9 +271,7 @@ struct MeetingDetailView: View {
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: 280)
                     let q = transcriptFilter.lowercased()
-                    let paragraphs = TranscriptGrouping.paragraphs(
-                        turns, speakers: DiarizationService.timeline(for: meeting, context: modelContext)
-                    )
+                    let paragraphs = TranscriptGrouping.paragraphs(turns, speakers: speakerTimeline)
                         .filter { q.isEmpty || $0.text.lowercased().contains(q) }
                     LazyVStack(alignment: .leading, spacing: 8) {
                         ForEach(paragraphs) { p in

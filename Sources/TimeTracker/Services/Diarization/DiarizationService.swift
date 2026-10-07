@@ -157,6 +157,32 @@ final class DiarizationService {
         record.diarizedAt = now
         record.diarizationError = nil
         refreshParticipants(record, speakers: created)
+        refreshLabels(for: record)
+        save()
+    }
+
+    // MARK: - Keeping names current everywhere
+
+    /// Re-applies who-is-who to everything that stores it for this meeting: "said by"
+    /// on every proposal, the customer of undecided ones, the participant list. Called
+    /// on every change — automatic recognition, naming, "not sure" — so no screen keeps
+    /// showing "Speaker 2" after the voice has a name.
+    func refreshLabels(for record: MeetingRecord) {
+        let meetingID = record.id
+        let proposals = (try? modelContext.fetch(FetchDescriptor<TodoProposal>(
+            predicate: #Predicate { $0.meetingID == meetingID }
+        ))) ?? []
+        ProposalFactory.applySpeakers(timeline(for: record), to: proposals)
+        MeetingContextResolver.applySpeakerCustomer(record: record, proposals: proposals, context: modelContext)
+        refreshParticipants(record, speakers: speakers(of: meetingID))
+    }
+
+    /// After a person was renamed, merged or deleted: every meeting they may appear in.
+    func refreshAllLabels() {
+        let records = (try? modelContext.fetch(FetchDescriptor<MeetingRecord>(
+            predicate: #Predicate { $0.diarizedAt != nil }
+        ))) ?? []
+        for record in records { refreshLabels(for: record) }
         save()
     }
 
@@ -243,19 +269,24 @@ final class DiarizationService {
     }
 
     static func timeline(for record: MeetingRecord, context: ModelContext) -> SpeakerTimeline? {
-        let segments = SpeakerTimeline.decode(record.speakerSegments)
-        guard !segments.isEmpty else { return nil }
         let recordID = record.id
         let speakers = (try? context.fetch(FetchDescriptor<MeetingSpeaker>(
             predicate: #Predicate { $0.meetingID == recordID }
         ))) ?? []
-        let profiles = Dictionary(
-            ((try? context.fetch(FetchDescriptor<SpeakerProfile>())) ?? []).map { ($0.id, $0) },
-            uniquingKeysWith: { a, _ in a }
-        )
+        let profiles = (try? context.fetch(FetchDescriptor<SpeakerProfile>())) ?? []
+        return timeline(for: record, speakers: speakers, profiles: profiles)
+    }
+
+    /// From already-fetched rows, so a view holding them in `@Query` redraws the moment
+    /// a name changes.
+    static func timeline(for record: MeetingRecord, speakers: [MeetingSpeaker],
+                         profiles: [SpeakerProfile]) -> SpeakerTimeline? {
+        let segments = SpeakerTimeline.decode(record.speakerSegments)
+        guard !segments.isEmpty else { return nil }
+        let byID = Dictionary(profiles.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         var names: [String: String] = [:]
-        for s in speakers {
-            names[s.key] = s.profileID.flatMap { profiles[$0]?.name } ?? "Speaker \(s.ordinal)"
+        for s in speakers where s.meetingID == record.id {
+            names[s.key] = s.profileID.flatMap { byID[$0]?.name } ?? "Speaker \(s.ordinal)"
         }
         return SpeakerTimeline(segments: segments, names: names)
     }
@@ -274,16 +305,12 @@ final class DiarizationService {
         if let record = try? modelContext.fetch(FetchDescriptor<MeetingRecord>(
             predicate: #Predicate { $0.id == meetingID }
         )).first {
-            refreshParticipants(record, speakers: speakers(of: meetingID))
-            onNamesChanged?(record)
+            refreshLabels(for: record)
         }
         save()
     }
 
-    /// Called whenever who-is-who changes for a meeting, to update what depends on it.
-    @ObservationIgnored var onNamesChanged: ((MeetingRecord) -> Void)?
-
-    /// Named people join the participant list when the calendar gave none.
+    /// Named people make the participant list when the calendar gave none.
     private func refreshParticipants(_ record: MeetingRecord, speakers: [MeetingSpeaker]) {
         guard record.participantEmails.isEmpty else { return }
         let names = speakers.compactMap { $0.profileID.flatMap(profile)?.name }

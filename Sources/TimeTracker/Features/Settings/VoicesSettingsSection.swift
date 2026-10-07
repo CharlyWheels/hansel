@@ -4,6 +4,7 @@ import SwiftData
 /// Settings → Meetings → Voices: the people Hansel recognises, and the off switch.
 struct VoicesSettingsSection: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(DiarizationService.self) private var diarization
     @Query(sort: [SortDescriptor(\SpeakerProfile.name)]) private var people: [SpeakerProfile]
     @Query(sort: [SortDescriptor(\Customer.name)]) private var customers: [Customer]
     @AppStorage(DiarizationService.enabledKey) private var enabled = true
@@ -22,6 +23,8 @@ struct VoicesSettingsSection: View {
             Text("Each meeting's microphone and call audio are split into voices on this Mac (about 20 MB of models, downloaded once). Voiceprints never leave it and are never sent to the AI provider; only names are. Speaker identification uses the recordings Meeting Notes keeps, so it works while they exist.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+        // A rename typed without pressing Return still reaches every meeting.
+        .onDisappear { diarization.refreshAllLabels() }
         .confirmationDialog("Forget every voice?", isPresented: $confirmForget) {
             Button("Forget", role: .destructive, action: forgetAll)
         } message: {
@@ -33,6 +36,7 @@ struct VoicesSettingsSection: View {
         HStack {
             TextField("Name", text: Binding(get: { person.name }, set: { person.name = $0; save() }))
                 .textFieldStyle(.plain)
+                .onSubmit { diarization.refreshAllLabels() }
             if person.isMe { Text("me").font(.caption).foregroundStyle(.secondary) }
             Text("\(person.sampleCount) sample\(person.sampleCount == 1 ? "" : "s")")
                 .font(.caption).foregroundStyle(.secondary)
@@ -70,6 +74,7 @@ struct VoicesSettingsSection: View {
         for s in speakers { s.profileID = target.id }
         modelContext.delete(source)
         save()
+        diarization.refreshAllLabels()
     }
 
     private func delete(_ person: SpeakerProfile) {
@@ -80,6 +85,7 @@ struct VoicesSettingsSection: View {
         for s in speakers { s.profileID = nil; s.assignment = .none }
         modelContext.delete(person)
         save()
+        diarization.refreshAllLabels()
     }
 
     private func forgetAll() {

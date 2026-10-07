@@ -23,9 +23,16 @@ enum OwnerMatcher {
         return configured.isEmpty ? [NSFullUserName()] : configured
     }
 
+    /// How summarisers say "we don't know who": a placeholder, not a person.
+    private static let unidentified = [
+        "no identificad", "sin identificar", "desconocid", "unidentified", "unknown",
+        "speaker", "interlocutor", "participante", "participant", "onbekend", "spreker",
+    ]
+
     static func classify(owner: String?, userNames: [String]) -> Verdict {
         let owner = (owner ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !owner.isEmpty, !collective.contains(owner) else { return .unknown }
+        if unidentified.contains(where: { owner.contains($0) }) { return .unknown }
         let ownerTokens = tokens(owner)
         let mine = Set(userNames.flatMap { tokens($0.lowercased()) })
         if !ownerTokens.isDisjoint(with: mine) { return .me }
@@ -104,11 +111,22 @@ enum ProposalFactory {
         return proposal
     }
 
-    /// Records who was speaking when each item came up. Only a hint for the user and
-    /// the model: whoever says a task is often asking someone else to do it.
-    static func applySpeakers(_ timeline: SpeakerTimeline?, to proposals: [TodoProposal]) {
-        for proposal in proposals where proposal.isPending {
+    /// Records who was speaking when each item came up, on every proposal of the meeting
+    /// (decided ones too: it is only information). A hint for the user and the model:
+    /// whoever says a task is often asking someone else to do it.
+    ///
+    /// Also re-checks undecided proposals flagged as someone else's from the summary's
+    /// owner, so a placeholder like "unidentified speaker" stops counting as a person.
+    static func applySpeakers(_ timeline: SpeakerTimeline?, to proposals: [TodoProposal],
+                              userNames: [String] = OwnerMatcher.userNames()) {
+        for proposal in proposals {
             proposal.saidBy = proposal.timestampSeconds.flatMap { timeline?.name(at: $0) }
+            if proposal.isPending, proposal.likelyForSomeoneElse,
+               proposal.hint?.hasPrefix("The summary assigns this to") == true,
+               OwnerMatcher.classify(owner: proposal.owner, userNames: userNames) != .someoneElse {
+                proposal.likelyForSomeoneElse = false
+                proposal.hint = nil
+            }
         }
     }
 

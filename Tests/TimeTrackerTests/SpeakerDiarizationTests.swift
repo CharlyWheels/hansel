@@ -168,4 +168,47 @@ final class SpeakerDiarizationTests: XCTestCase {
         let parsed = SpeakerNameSuggester.parse(text)
         XCTAssertEqual(parsed, [.init(label: "Speaker 2", name: "Elena", confidence: 0.8, evidence: "gracias, Elena")])
     }
+
+    // MARK: - Names reach everything
+
+    func test_namingUpdatesSaidByOnDecidedProposalsToo() throws {
+        let container = try AppModelContainer.inMemory()
+        let ctx = container.mainContext
+        let record = MeetingRecord(id: UUID(), title: "Sync", startedAt: Date(), folderPath: "/tmp/x",
+                                   fileModifiedAt: Date())
+        ctx.insert(record)
+        let declined = TodoProposal(meetingID: record.id, sourceKey: "m#0", meetingTitle: "Sync",
+                                    meetingStartedAt: Date(), title: "Check API", evidence: "Check API",
+                                    timestampSeconds: 950)
+        declined.statusRaw = TodoProposal.Status.declined.rawValue
+        ctx.insert(declined)
+        let service = DiarizationService(modelContext: ctx, diarizer: FakeDiarizer(outputs: [:]))
+        service.store(callOutputs(), for: record)
+        XCTAssertEqual(declined.saidBy, "Speaker 3")
+
+        let s2 = try XCTUnwrap(service.speakers(of: record.id).first { $0.clusterID == "S2" })
+        service.createPerson(named: "Pablo Lopez", from: s2)
+        XCTAssertEqual(declined.saidBy, "Pablo Lopez", "a name given later reaches decided proposals")
+
+        service.unassign(s2)
+        XCTAssertEqual(declined.saidBy, "Speaker 3", "and goes away again with 'not sure'")
+    }
+
+    func test_unidentifiedOwnersAreNotSomeoneElse() {
+        for owner in ["Interlocutor no identificado", "Unknown speaker", "Speaker 2", "Participante desconocido"] {
+            XCTAssertEqual(OwnerMatcher.classify(owner: owner, userNames: ["Carlos"]), .unknown, owner)
+        }
+        XCTAssertEqual(OwnerMatcher.classify(owner: "Diogo", userNames: ["Carlos"]), .someoneElse)
+    }
+
+    func test_refreshClearsAWrongSomeoneElseFlag() {
+        let proposal = TodoProposal(meetingID: UUID(), sourceKey: "m#0", meetingTitle: "Sync",
+                                    meetingStartedAt: Date(), title: "Prepare demo", evidence: "Prepare demo",
+                                    owner: "Interlocutor no identificado")
+        proposal.likelyForSomeoneElse = true
+        proposal.hint = "The summary assigns this to Interlocutor no identificado."
+        ProposalFactory.applySpeakers(nil, to: [proposal], userNames: ["Carlos"])
+        XCTAssertFalse(proposal.likelyForSomeoneElse)
+        XCTAssertNil(proposal.hint)
+    }
 }
