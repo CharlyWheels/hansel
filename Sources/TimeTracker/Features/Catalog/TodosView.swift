@@ -31,13 +31,15 @@ struct TodosView: View {
     @State private var newTitle: String = ""
     @State private var showCompleted: Bool = false
     @State private var pendingDelete: IndexSet?
+    /// The todos opened on top of the list, so one click can go back to it.
+    @State private var path = NavigationPath()
 
     private var rootTodos: [Todo] {
         allTodos.filter { $0.parent == nil && (showCompleted || !$0.isCompleted) }
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             VStack(alignment: .leading, spacing: 0) {
                 header
                     .padding([.horizontal, .top], 20)
@@ -75,6 +77,20 @@ struct TodosView: View {
             }
             .navigationDestination(for: Todo.self) { todo in
                 TodoDetailView(todo: todo)
+                    .toolbar {
+                        // The back arrow goes up one level; this goes straight to the list,
+                        // however deep the subtasks were opened.
+                        ToolbarItem(placement: .navigation) {
+                            Button {
+                                path = NavigationPath()
+                            } label: {
+                                Label("All todos", systemImage: "list.bullet")
+                                    .labelStyle(.titleAndIcon)
+                            }
+                            .help("Back to the todo list")
+                            .keyboardShortcut(.upArrow, modifiers: [.command, .shift])
+                        }
+                    }
             }
         }
     }
