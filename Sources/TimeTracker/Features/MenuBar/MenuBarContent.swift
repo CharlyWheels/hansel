@@ -37,10 +37,29 @@ struct MenuBarContent: View {
         activeTodos.filter { $0.parent == nil }
     }
 
+    /// The popover keeps one size. When its content changed height (adding a todo, a
+    /// banner appearing) the MenuBarExtra window resized while focused and was left
+    /// as a black rectangle until reopened.
+    static let scrollHeight: CGFloat = 520
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HanselBrandRow(iconSize: 20)
             Divider()
+            ScrollView {
+                scrollingContent
+                    .padding(.trailing, 4)
+            }
+            .frame(height: Self.scrollHeight)
+            Divider()
+            footer
+        }
+        .padding(12)
+        .frame(width: 360)
+    }
+
+    private var scrollingContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
             PermissionBanner()
             if let pending = prompts.pending {
                 switchBanner(pending)
@@ -71,11 +90,7 @@ struct MenuBarContent: View {
             todosSection
             Divider()
             recentSection
-            Divider()
-            footer
         }
-        .padding(12)
-        .frame(width: 360)
     }
 
     // MARK: - Task-switch question
