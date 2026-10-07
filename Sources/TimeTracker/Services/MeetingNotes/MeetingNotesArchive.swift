@@ -1,8 +1,14 @@
 import Foundation
 
-/// Finds and reads the Meeting Notes archive: `YYYY/MM/DD/<meeting>/.meeting.json`.
+/// Finds and reads the Meeting Notes archive.
+///
+/// Meeting Notes has used more than one layout, so both are read:
+/// - `YYYY/MM/DD/<meeting>/.meeting.json`
+/// - `YYYY/Www/YYYY-MM-DD/<meeting>/meeting.json` (by ISO week; current versions)
+/// Only expecting the first made every meeting from current versions invisible.
 enum MeetingNotesArchive {
-    static let stateFileName = ".meeting.json"
+    /// State file names, newest layout first.
+    static let stateFileNames = ["meeting.json", ".meeting.json"]
     static let notesFileName = "meeting.md"
     static let transcriptFileName = "transcript.md"
 
@@ -29,31 +35,42 @@ enum MeetingNotesArchive {
     struct Entry: Equatable {
         let folder: URL
         let modifiedAt: Date
-        var stateFile: URL { folder.appending(path: MeetingNotesArchive.stateFileName) }
     }
 
-    /// Every meeting folder under `root`. Only the date levels are walked, so a large
-    /// archive costs a few directory listings, not a crawl of every transcript.
+    /// The meeting's state file, whichever layout wrote it.
+    static func stateFile(in folder: URL, fileManager: FileManager = .default) -> URL? {
+        stateFileNames
+            .map { folder.appending(path: $0) }
+            .first { fileManager.fileExists(atPath: $0.path) }
+    }
+
+    /// Every meeting folder under `root`: a folder holding a state file, at most three
+    /// levels below a year folder. Recordings and transcripts are never opened, so a
+    /// large archive costs a few directory listings.
     static func scan(root: URL, fileManager: FileManager = .default) -> [Entry] {
         var entries: [Entry] = []
-        for year in subdirectories(of: root, fileManager) where isNumber(year.lastPathComponent, length: 4) {
-            for month in subdirectories(of: year, fileManager) where isNumber(month.lastPathComponent, length: 2) {
-                for day in subdirectories(of: month, fileManager) where isNumber(day.lastPathComponent, length: 2) {
-                    for meeting in subdirectories(of: day, fileManager) {
-                        let state = meeting.appending(path: stateFileName)
-                        guard let attrs = try? fileManager.attributesOfItem(atPath: state.path),
-                              let modified = attrs[.modificationDate] as? Date else { continue }
-                        entries.append(Entry(folder: meeting, modifiedAt: modified))
-                    }
+        func walk(_ folder: URL, depth: Int) {
+            for child in subdirectories(of: folder, fileManager) {
+                if let state = stateFile(in: child, fileManager: fileManager) {
+                    guard let attrs = try? fileManager.attributesOfItem(atPath: state.path),
+                          let modified = attrs[.modificationDate] as? Date else { continue }
+                    entries.append(Entry(folder: child, modifiedAt: modified))
+                } else if depth < 3 {
+                    walk(child, depth: depth + 1)
                 }
             }
         }
-        return entries
+        for year in subdirectories(of: root, fileManager) where isNumber(year.lastPathComponent, length: 4) {
+            walk(year, depth: 1)
+        }
+        return entries.sorted { $0.folder.path < $1.folder.path }
     }
 
     static func load(_ folder: URL) throws -> MeetingNotesDocument {
-        let data = try Data(contentsOf: folder.appending(path: stateFileName))
-        return try MeetingNotesDocument.decode(data)
+        guard let state = stateFile(in: folder) else {
+            throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: folder.path])
+        }
+        return try MeetingNotesDocument.decode(try Data(contentsOf: state))
     }
 
     private static func subdirectories(of url: URL, _ fm: FileManager) -> [URL] {

@@ -122,6 +122,24 @@ final class MeetingNotesImportTests: XCTestCase {
         XCTAssertEqual(try MeetingNotesArchive.load(entries[0].folder).id, Self.meetingID)
     }
 
+    func test_scan_findsMeetingsInTheWeekLayoutOfCurrentVersions() throws {
+        // What Meeting Notes writes today: YYYY/Www/YYYY-MM-DD/<meeting>/meeting.json,
+        // next to an in-progress folder that only has live.md.
+        let root = FileManager.default.temporaryDirectory.appending(path: "mn-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let meeting = root.appending(path: "2026/W41/2026-10-07/0957-teams-meeting-62536EA2")
+        try FileManager.default.createDirectory(at: meeting, withIntermediateDirectories: true)
+        try Self.sampleJSON().write(to: meeting.appending(path: "meeting.json"))
+        let live = root.appending(path: "2026/W41/2026-10-07/0947-meeting-3DA22AA3")
+        try FileManager.default.createDirectory(at: live, withIntermediateDirectories: true)
+        try Data("# live".utf8).write(to: live.appending(path: "live.md"))
+        try Data("{}".utf8).write(to: root.appending(path: "current.json"))
+
+        let entries = MeetingNotesArchive.scan(root: root)
+        XCTAssertEqual(entries.map(\.folder.lastPathComponent), ["0957-teams-meeting-62536EA2"])
+        XCTAssertEqual(try MeetingNotesArchive.load(entries[0].folder).id, Self.meetingID)
+    }
+
     func test_resolvedRoot_prefersHanselsOwnSetting() {
         let defaults = UserDefaults(suiteName: "test-\(UUID().uuidString)")!
         defaults.set("/tmp/my-meetings", forKey: MeetingNotesArchive.pathDefaultsKey)
