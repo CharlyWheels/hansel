@@ -1,8 +1,12 @@
 import SwiftUI
 import SwiftData
 
+/// The first page: today at a glance, then the week, what is waiting for the user, and
+/// the latest entries.
 struct DashboardView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(MainWindowRouter.self) private var router
+    @Environment(TimerController.self) private var controller
 
     @Query(
         filter: #Predicate<TimeEntry> { $0.endAt != nil },
@@ -11,46 +15,38 @@ struct DashboardView: View {
 
     @Query(sort: [SortDescriptor(\Todo.sortOrder), SortDescriptor(\Todo.createdAt)])
     private var allTodos: [Todo]
+    @Query(TodoProposal.pendingDescriptor) private var proposals: [TodoProposal]
 
     @State private var editingEntry: TimeEntry?
 
-    private var activeTodos: [Todo] {
-        allTodos.filter { !$0.isCompleted }
-    }
-    private var activeRootTodos: [Todo] {
-        activeTodos.filter { $0.parent == nil }
-    }
-    private var activeSubtaskCount: Int {
-        activeTodos.count - activeRootTodos.count
-    }
+    private var openTodos: [Todo] { allTodos.filter { !$0.isCompleted && $0.parent == nil } }
     private var completedThisWeek: Int {
-        let cal = Calendar.current
-        let weekStart = cal.dateInterval(of: .weekOfYear, for: Date())?.start ?? Date()
-        return allTodos.filter {
-            $0.isCompleted && ($0.completedAt ?? .distantPast) >= weekStart
-        }.count
-    }
-
-    private var todayReport: AnalyticsReport {
-        AnalyticsAggregator.report(entries: entries, period: .today)
-    }
-    private var weekReport: AnalyticsReport {
-        AnalyticsAggregator.report(entries: entries, period: .thisWeek)
-    }
-    private var monthReport: AnalyticsReport {
-        AnalyticsAggregator.report(entries: entries, period: .thisMonth)
+        let weekStart = Calendar.current.dateInterval(of: .weekOfYear, for: Date())?.start ?? Date()
+        return allTodos.filter { $0.isCompleted && ($0.completedAt ?? .distantPast) >= weekStart }.count
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                cardGrid
-                todosCardRow
-                topRow
-                activeTodosSection
-                recentEntriesSection
+                greeting
+                todayCard
+                statTiles
+                HStack(alignment: .top, spacing: Theme.spacing) {
+                    VStack(spacing: Theme.spacing) {
+                        topThisWeek
+                    }
+                    .frame(maxWidth: .infinity)
+                    VStack(spacing: Theme.spacing) {
+                        if !proposals.isEmpty { proposalsCard }
+                        todosCard
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                recentCard
             }
-            .padding()
+            .padding(20)
+            .frame(maxWidth: 980)
+            .frame(maxWidth: .infinity)
         }
         .navigationTitle("Dashboard")
         .sheet(item: $editingEntry) { entry in
@@ -59,213 +55,202 @@ struct DashboardView: View {
         }
     }
 
-    // MARK: - Todos cards
+    // MARK: - Today
 
-    private var todosCardRow: some View {
-        Grid(horizontalSpacing: 12, verticalSpacing: 12) {
-            GridRow {
-                summaryCard(
-                    title: "Active todos",
-                    value: "\(activeRootTodos.count)",
-                    sublabel: activeSubtaskCount == 0
-                        ? "no subtasks"
-                        : "\(activeSubtaskCount) open subtask\(activeSubtaskCount == 1 ? "" : "s")",
-                    tint: .orange
-                )
-                summaryCard(
-                    title: "Completed this week",
-                    value: "\(completedThisWeek)",
-                    sublabel: completedThisWeek == 0 ? "—" : "todos finished",
-                    tint: .green
-                )
-                summaryCard(
-                    title: "Linked entries",
-                    value: "\(linkedEntryCount)",
-                    sublabel: "entries attached to a todo",
-                    tint: .accentColor
-                )
+    private var greeting: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(greetingText).font(.largeTitle.weight(.semibold))
+            Text(Date().formatted(date: .complete, time: .omitted)).foregroundStyle(.secondary)
+        }
+    }
+
+    private var greetingText: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        let name = OwnerMatcher.userNames().first?.split(separator: " ").first.map(String.init) ?? ""
+        let part = hour < 12 ? "Good morning" : hour < 19 ? "Good afternoon" : "Good evening"
+        return name.isEmpty ? part : "\(part), \(name)"
+    }
+
+    private var todayCard: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            let today = TodaySummary.load(context: modelContext, now: context.date)
+            Card {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline) {
+                        SectionHeader("Today", systemImage: "sun.max")
+                        Text(DurationFormat.hoursMinutes(today.strip.trackedSeconds))
+                            .font(.title3.weight(.semibold).monospacedDigit())
+                    }
+                    DayStrip(model: today.strip, height: 22) { today.colors[$0] ?? .gray }
+                    HStack(spacing: 14) {
+                        Label("\(today.entryCount) entr\(today.entryCount == 1 ? "y" : "ies")", systemImage: "list.bullet")
+                        Label("\(today.billablePercent)% billable", systemImage: "dollarsign.circle")
+                        if let running = controller.runningEntry {
+                            Label("Now: \(running.title.isEmpty ? "(untitled)" : running.title)", systemImage: "record.circle")
+                                .foregroundStyle(.red)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        Button("Open timeline") { router.selection = .timeline }
+                            .buttonStyle(.link)
+                    }
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                }
             }
         }
     }
 
-    private var linkedEntryCount: Int {
-        entries.filter { $0.linkedTodo != nil }.count
+    // MARK: - Numbers
+
+    private var statTiles: some View {
+        let week = AnalyticsAggregator.report(entries: entries, period: .thisWeek)
+        let month = AnalyticsAggregator.report(entries: entries, period: .thisMonth)
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Theme.spacing), count: 4),
+                         spacing: Theme.spacing) {
+            StatTile(value: DurationFormat.hoursMinutes(week.totalSeconds), label: "This week",
+                     systemImage: "calendar", tint: .blue)
+            StatTile(value: percent(week), label: "Billable this week",
+                     systemImage: "dollarsign.circle", tint: .green)
+            StatTile(value: DurationFormat.hoursMinutes(month.totalSeconds), label: "This month",
+                     systemImage: "calendar.badge.clock", tint: .purple)
+            StatTile(value: "\(openTodos.count)", label: completedThisWeek > 0 ? "Open todos · \(completedThisWeek) done this week" : "Open todos",
+                     systemImage: "checklist", tint: .orange)
+        }
     }
 
-    // MARK: - Active todos list
+    private func percent(_ report: AnalyticsReport) -> String {
+        guard report.totalSeconds > 0 else { return "—" }
+        return "\(Int((report.billableSeconds / report.totalSeconds * 100).rounded()))%"
+    }
 
-    private var activeTodosSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Active todos").font(.headline)
-            if activeRootTodos.isEmpty {
-                Text("No active todos — add one from the Todos page or the menu bar.")
-                    .foregroundStyle(.secondary).font(.caption)
-            } else {
-                VStack(spacing: 2) {
-                    ForEach(activeRootTodos.prefix(5)) { todo in
-                        todoRow(todo)
-                        Divider()
+    private var topThisWeek: some View {
+        let week = AnalyticsAggregator.report(entries: entries, period: .thisWeek)
+        let rows = Array(week.byProject.prefix(6))
+        return Card {
+            VStack(alignment: .leading, spacing: 10) {
+                SectionHeader("This week by project", systemImage: "chart.bar") {
+                    Button("Analytics") { router.selection = .analytics }.buttonStyle(.link).font(.caption)
+                }
+                if rows.isEmpty {
+                    Text("Nothing tracked this week yet.").foregroundStyle(.secondary)
+                } else {
+                    ForEach(rows) { row in
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack {
+                                Text(row.name).lineLimit(1)
+                                Spacer()
+                                Text(DurationFormat.hoursMinutes(row.total))
+                                    .monospacedDigit().foregroundStyle(.secondary)
+                            }
+                            .font(.callout)
+                            GeometryReader { geo in
+                                Capsule().fill(Color.primary.opacity(0.07))
+                                    .overlay(alignment: .leading) {
+                                        Capsule().fill(projectColor(row.id).gradient)
+                                            .frame(width: max(4, geo.size.width * row.share))
+                                    }
+                            }
+                            .frame(height: 6)
+                        }
                     }
                 }
             }
         }
     }
 
-    private func todoRow(_ todo: Todo) -> some View {
-        let totalSub = todo.subtasks.count
-        let doneSub = todo.subtasks.filter(\.isCompleted).count
-        let project = todo.inheritedProject
-        return HStack(spacing: 8) {
-            Image(systemName: "circle")
-                .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(todo.title.isEmpty ? "(untitled)" : todo.title)
-                    .foregroundStyle(project?.displayColor ?? .primary)
-                if let project {
-                    Text(project.name)
-                        .font(.caption2)
-                        .foregroundStyle(project.displayColor)
+    private func projectColor(_ id: UUID) -> Color {
+        entries.first { $0.project?.id == id }?.project?.displayColor ?? .gray
+    }
+
+    // MARK: - Waiting for the user
+
+    private var proposalsCard: some View {
+        Card(tint: .accentColor) {
+            VStack(alignment: .leading, spacing: 8) {
+                SectionHeader("Proposed from meetings", systemImage: "tray.and.arrow.down") {
+                    Text("\(proposals.count)").font(.callout.weight(.semibold))
+                }
+                ForEach(proposals.prefix(3)) { p in
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(p.title).font(.callout).lineLimit(1)
+                        Text([p.meetingTitle, p.saidBy].compactMap { $0 }.joined(separator: " · "))
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                Button("Review in Todos") { router.selection = .todos }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            }
+        }
+    }
+
+    private var todosCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 8) {
+                SectionHeader("Open todos", systemImage: "checklist") {
+                    Button("All") { router.selection = .todos }.buttonStyle(.link).font(.caption)
+                }
+                if openTodos.isEmpty {
+                    Text("Nothing open. Add one from the menu bar.").foregroundStyle(.secondary).font(.callout)
+                } else {
+                    ForEach(openTodos.prefix(6)) { todo in
+                        HStack(spacing: 8) {
+                            Button {
+                                todo.isCompleted = true
+                                todo.completedAt = Date()
+                                try? modelContext.save()
+                            } label: { Image(systemName: "circle").foregroundStyle(.secondary) }
+                            .buttonStyle(.borderless)
+                            .help("Mark done")
+                            Text(todo.title.isEmpty ? "(untitled)" : todo.title)
+                                .lineLimit(1)
+                                .foregroundStyle(todo.inheritedDisplayColor ?? .primary)
+                            Spacer()
+                            if let project = todo.inheritedProject {
+                                Chip(text: project.name, color: project.displayColor)
+                            }
+                        }
+                        .font(.callout)
+                    }
                 }
             }
-            Spacer()
-            if totalSub > 0 {
-                Text("\(doneSub)/\(totalSub)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
         }
-        .padding(.vertical, 2)
-    }
-
-    // MARK: - Cards
-
-    private var cardGrid: some View {
-        Grid(horizontalSpacing: 12, verticalSpacing: 12) {
-            GridRow {
-                summaryCard(
-                    title: "Today — Total",
-                    value: DurationFormat.hoursMinutes(todayReport.totalSeconds),
-                    sublabel: "\(todayReport.entryCount) entries",
-                    tint: .accentColor
-                )
-                summaryCard(
-                    title: "Today — Billable",
-                    value: DurationFormat.hoursMinutes(todayReport.billableSeconds),
-                    sublabel: billablePct(todayReport),
-                    tint: .green
-                )
-                summaryCard(
-                    title: "This Week — Total",
-                    value: DurationFormat.hoursMinutes(weekReport.totalSeconds),
-                    sublabel: "\(weekReport.entryCount) entries",
-                    tint: .accentColor
-                )
-                summaryCard(
-                    title: "This Week — Billable",
-                    value: DurationFormat.hoursMinutes(weekReport.billableSeconds),
-                    sublabel: billablePct(weekReport),
-                    tint: .green
-                )
-                summaryCard(
-                    title: "This Month — Total",
-                    value: DurationFormat.hoursMinutes(monthReport.totalSeconds),
-                    sublabel: "\(monthReport.entryCount) entries",
-                    tint: .accentColor
-                )
-                summaryCard(
-                    title: "This Month — Billable",
-                    value: DurationFormat.hoursMinutes(monthReport.billableSeconds),
-                    sublabel: billablePct(monthReport),
-                    tint: .green
-                )
-            }
-        }
-    }
-
-    private func summaryCard(title: String, value: String, sublabel: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.title.monospacedDigit())
-                .fontWeight(.semibold)
-                .foregroundStyle(tint)
-            Text(sublabel)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1)
-        )
-    }
-
-    private func billablePct(_ report: AnalyticsReport) -> String {
-        guard report.totalSeconds > 0 else { return "0%" }
-        let pct = Int((report.billableSeconds / report.totalSeconds * 100).rounded())
-        return "\(pct)% of total"
-    }
-
-    // MARK: - Top row
-
-    private var topRow: some View {
-        HStack(alignment: .top, spacing: 20) {
-            topItemBlock(
-                title: "Top customer this month",
-                row: monthReport.byCustomer.first
-            )
-            topItemBlock(
-                title: "Top project this month",
-                row: monthReport.byProject.first
-            )
-        }
-    }
-
-    @ViewBuilder
-    private func topItemBlock(title: String, row: BreakdownRow?) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.caption).foregroundStyle(.secondary)
-            if let row {
-                Text(row.name).font(.title3)
-                Text("\(DurationFormat.hoursMinutes(row.total)) · \(Int((row.share * 100).rounded()))%")
-                    .font(.caption).foregroundStyle(.secondary)
-            } else {
-                Text("—").font(.title3).foregroundStyle(.tertiary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Recent
 
-    private var recentEntriesSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Recent entries").font(.headline)
-            if entries.isEmpty {
-                Text("No entries yet — start a timer from the menu bar.")
-                    .foregroundStyle(.secondary).font(.caption)
-            } else {
-                VStack(spacing: 2) {
-                    ForEach(entries.prefix(10)) { entry in
-                        EntryRowView(entry: entry)
-                            .contentShape(Rectangle())
-                            .onTapGesture { editingEntry = entry }
-                            .contextMenu {
-                                Button("Edit") { editingEntry = entry }
-                                Divider()
-                                Button("Delete", role: .destructive) {
-                                    modelContext.delete(entry)
-                                    try? modelContext.save()
+    private var recentCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 8) {
+                SectionHeader("Recent entries", systemImage: "clock") {
+                    Button("All entries") { router.selection = .entries }.buttonStyle(.link).font(.caption)
+                }
+                if entries.isEmpty {
+                    Text("No entries yet. Start a timer from the menu bar.").foregroundStyle(.secondary)
+                } else {
+                    ForEach(entries.prefix(8)) { entry in
+                        Button { editingEntry = entry } label: {
+                            HStack(spacing: 10) {
+                                RoundedRectangle(cornerRadius: 2).fill(entry.displayColor).frame(width: 4, height: 30)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(entry.title.isEmpty ? "(untitled)" : entry.title).lineLimit(1)
+                                    Text([entry.project?.name, entry.customer?.name].compactMap { $0 }.joined(separator: " · "))
+                                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                                Spacer()
+                                Text(entry.startAt.formatted(.dateTime.weekday(.abbreviated).hour().minute()))
+                                    .font(.caption).foregroundStyle(.secondary)
+                                if let d = entry.duration {
+                                    Text(DurationFormat.hoursMinutes(d))
+                                        .font(.callout.monospacedDigit())
+                                        .frame(width: 60, alignment: .trailing)
                                 }
                             }
-                        Divider()
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        if entry.id != entries.prefix(8).last?.id { Divider() }
                     }
                 }
             }

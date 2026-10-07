@@ -347,6 +347,7 @@ struct MenuBarContent: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .frame(maxWidth: .infinity)
             switch tab {
             case .todos: todosList
             case .proposed: proposedList

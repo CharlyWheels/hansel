@@ -39,7 +39,9 @@ struct TodosView: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 0) {
-                addRow.padding()
+                header
+                    .padding([.horizontal, .top], 20)
+                    .padding(.bottom, 12)
                 Divider()
                 List {
                     // Inside the list, so it scrolls with it. Above the list it had no
@@ -77,14 +79,41 @@ struct TodosView: View {
         }
     }
 
-    private var addRow: some View {
-        HStack {
-            TextField("Todo title", text: $newTitle)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(addRoot)
-            Button("Add", action: addRoot)
-                .disabled(newTitle.trimmingCharacters(in: .whitespaces).isEmpty)
+    private var openCount: Int { allTodos.filter { !$0.isCompleted && $0.parent == nil }.count }
+    private var doneThisWeek: Int {
+        let weekStart = Calendar.current.dateInterval(of: .weekOfYear, for: Date())?.start ?? Date()
+        return allTodos.filter { $0.isCompleted && ($0.completedAt ?? .distantPast) >= weekStart }.count
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Todos").font(.largeTitle.weight(.semibold))
+                Text("\(openCount) open · \(doneThisWeek) done this week")
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            addRow
         }
+    }
+
+    private var addRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "plus.circle.fill")
+                .font(.title3)
+                .foregroundStyle(Color.accentColor)
+            TextField("Add a todo and press Return", text: $newTitle)
+                .textFieldStyle(.plain)
+                .font(.body)
+                .onSubmit(addRoot)
+            if !newTitle.trimmingCharacters(in: .whitespaces).isEmpty {
+                Button("Add", action: addRoot).buttonStyle(.borderedProminent).controlSize(.small)
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous).fill(.background.secondary))
+        .overlay(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
+            .strokeBorder(Color.primary.opacity(0.06)))
     }
 
     private func addRoot() {
@@ -122,26 +151,29 @@ struct TodosView: View {
                 onToggle(todo)
             } label: {
                 Image(systemName: todo.isCompleted ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
                     .foregroundStyle(todo.isCompleted ? .green : .secondary)
             }
             .buttonStyle(.borderless)
-            VStack(alignment: .leading, spacing: 1) {
+            .help(todo.isCompleted ? "Mark not done" : "Mark done")
+            VStack(alignment: .leading, spacing: 3) {
                 Text(todo.title.isEmpty ? "(untitled)" : todo.title)
                     .strikethrough(todo.isCompleted)
-                    .foregroundStyle(titleColor(for: todo))
-                HStack(spacing: 6) {
-                    if !todo.subtasks.isEmpty {
-                        let done = todo.subtasks.filter(\.isCompleted).count
-                        Text("\(done)/\(todo.subtasks.count) subtasks")
-                            .font(.caption2).foregroundStyle(.secondary)
-                    }
-                    if let project = todo.inheritedProject {
-                        Text(project.name)
-                            .font(.caption2)
-                            .foregroundStyle(project.displayColor)
+                    .foregroundStyle(todo.isCompleted ? .secondary : .primary)
+                let hasMeta = !todo.subtasks.isEmpty || todo.inheritedProject != nil
+                if hasMeta {
+                    HStack(spacing: 6) {
+                        if let project = todo.inheritedProject {
+                            Chip(text: project.name, systemImage: "folder", color: project.displayColor)
+                        }
+                        if !todo.subtasks.isEmpty {
+                            let done = todo.subtasks.filter(\.isCompleted).count
+                            Chip(text: "\(done)/\(todo.subtasks.count)", systemImage: "list.bullet")
+                        }
                     }
                 }
             }
+            .padding(.vertical, 3)
             Spacer()
             DueDateBadge(todo: todo)
         }

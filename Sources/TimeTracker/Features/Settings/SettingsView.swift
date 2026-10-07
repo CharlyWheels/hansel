@@ -4,24 +4,42 @@ import AppKit
 struct SettingsView: View {
     var body: some View {
         TabView {
-            GeneralSettingsView()
-                .tabItem { Label("General", systemImage: "gearshape") }
-            PermissionsSettingsView()
-                .tabItem { Label("Permissions", systemImage: "hand.raised") }
+            TrackingSettingsView()
+                .tabItem { Label("Tracking", systemImage: "timer") }
             CalendarSettingsView()
                 .tabItem { Label("Calendar", systemImage: "calendar") }
             MeetingsSettingsView()
                 .tabItem { Label("Meetings", systemImage: "waveform") }
             AISettingsView()
                 .tabItem { Label("AI", systemImage: "sparkles") }
+            PermissionsSettingsView()
+                .tabItem { Label("Permissions", systemImage: "hand.raised") }
             DebugSettingsView()
-                .tabItem { Label("Debug", systemImage: "ladybug") }
+                .tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }
         }
         .padding()
     }
 }
 
-struct GeneralSettingsView: View {
+/// A stepper with its label on the left and the value on the right, like System Settings.
+private struct ValueStepper: View {
+    let title: String
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+    var step: Int = 1
+    var unit: String = "min"
+
+    var body: some View {
+        Stepper(value: $value, in: range, step: step) {
+            LabeledContent(title) {
+                Text("\(value) \(unit)").monospacedDigit()
+            }
+        }
+    }
+}
+
+/// How Hansel starts, keeps and questions the timer.
+struct TrackingSettingsView: View {
     @AppStorage("idleThresholdMinutes") private var idleThresholdMinutes: Int = 5
     @AppStorage("autoStartActivityMinutes") private var autoStartActivityMinutes: Int = 10
     @AppStorage("promptIdleMinutes") private var promptIdleMinutes: Int = 2
@@ -33,36 +51,48 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         Form {
-            Section("Auto-start") {
-                Stepper("Idle threshold: \(idleThresholdMinutes) min",
-                        value: $idleThresholdMinutes, in: 1...30)
-                Stepper("Activity auto-start after: \(autoStartActivityMinutes) min",
-                        value: $autoStartActivityMinutes, in: 5...60)
-                Text("When the system has been idle for longer than the threshold, the timer will not auto-start. After the configured minutes of continuous activity without a running timer, the AI drafts a new entry and the timer starts.")
-                    .font(.caption).foregroundStyle(.secondary)
+            Section {
+                ValueStepper(title: "Start after continuous activity of", value: $autoStartActivityMinutes, range: 5...60)
+                ValueStepper(title: "Consider me away after no input for", value: $idleThresholdMinutes, range: 1...30)
+            } header: {
+                Text("Starting automatically")
+            } footer: {
+                Text("With nothing running, Hansel drafts an entry with AI after this much activity and starts it. Calendar meetings you attend start on their own too.")
             }
-            Section("Check-ins") {
-                Stepper("Remove away time after: \(promptIdleMinutes) min",
-                        value: $promptIdleMinutes, in: 1...120)
-                Stepper("Stop the timer if away for: \(longAwayMinutes) min",
-                        value: $longAwayMinutes, in: 15...480, step: 15)
-                Stepper("Periodic check-in every: \(periodicCheckMinutes) min",
-                        value: $periodicCheckMinutes, in: 15...480, step: 15)
-                Stepper("Unanswered switch question expires after: \(switchPromptTimeoutMinutes) min",
-                        value: $switchPromptTimeoutMinutes, in: 2...60)
-                Text("Time away from the Mac is not tracked. After a short absence the away time is removed and the task carries on; after a long one (or overnight) the entry is closed when you left. You can keep the time from the notice in the menu bar. Listening on a call with the screen unlocked counts as present. Long-running entries also get a periodic check-in.")
-                    .font(.caption).foregroundStyle(.secondary)
+
+            Section {
+                Toggle("Switch to a calendar meeting when I join it", isOn: $autoSwitchOnMeetingJoin)
+            } header: {
+                Text("Meetings")
+            } footer: {
+                Text("A meeting with other people or a video link, in progress, with your microphone on, replaces the running entry without asking. Undo from the menu bar for 15 minutes. Personal calendar blocks never trigger it.")
             }
-            Section("Meetings") {
-                Toggle("Switch automatically when I join a calendar meeting", isOn: $autoSwitchOnMeetingJoin)
-                Text("When a meeting with other people or a video link is in progress and your microphone turns on, the running entry is closed and the meeting starts, without asking. Personal calendar blocks never trigger it. You can undo it from the menu bar for 15 minutes.")
-                    .font(.caption).foregroundStyle(.secondary)
+
+            Section {
+                ValueStepper(title: "Remove away time longer than", value: $promptIdleMinutes, range: 1...120)
+                ValueStepper(title: "Stop the timer after being away", value: $longAwayMinutes, range: 15...480, step: 15)
+            } header: {
+                Text("When you step away")
+            } footer: {
+                Text("Time away from the Mac is not tracked. A short absence is cut out and the task carries on; a long one (or a night) closes the entry when you left. Keep the time from the notice if it was work. A call with the screen unlocked counts as present.")
             }
-            Section("Startup") {
-                Toggle("Launch at login", isOn: $launchAtLogin)
+
+            Section {
+                ValueStepper(title: "Check in on long entries every", value: $periodicCheckMinutes, range: 15...480, step: 15)
+                ValueStepper(title: "Unanswered switch questions expire after", value: $switchPromptTimeoutMinutes, range: 2...60)
+            } header: {
+                Text("Questions")
+            } footer: {
+                Text("The check-in catches a timer left running by mistake.")
+            }
+
+            Section {
+                Toggle("Open Hansel at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, new in LaunchAtLogin.setEnabled(new) }
-                Text("Status: \(LaunchAtLogin.statusDescription). Move the app to /Applications first.")
-                    .font(.caption).foregroundStyle(.secondary)
+            } header: {
+                Text("Startup")
+            } footer: {
+                Text("Status: \(LaunchAtLogin.statusDescription). The app must be in /Applications.")
             }
         }
         .formStyle(.grouped)

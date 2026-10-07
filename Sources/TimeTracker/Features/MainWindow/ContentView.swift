@@ -52,6 +52,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @Environment(MainWindowRouter.self) private var router
     @Environment(FocusPromptCenter.self) private var prompts
+    @Query(TodoProposal.pendingDescriptor) private var pendingProposals: [TodoProposal]
 
     var body: some View {
         @Bindable var router = router
@@ -60,7 +61,9 @@ struct ContentView: View {
                 ForEach(SidebarSection.allCases) { section in
                     Section(section.rawValue) {
                         ForEach(section.items) { item in
-                            Label(item.rawValue, systemImage: item.systemImage).tag(item)
+                            Label(item.rawValue, systemImage: item.systemImage)
+                                .badge(badge(for: item))
+                                .tag(item)
                         }
                     }
                 }
@@ -75,6 +78,13 @@ struct ContentView: View {
         } detail: {
             detailView
         }
+        // hansel://open/<page> (e.g. hansel://open/todos) lands on that page.
+        .onOpenURL { url in
+            let page = url.pathComponents.dropFirst().first?.lowercased() ?? ""
+            if let item = SidebarItem.allCases.first(where: { $0.rawValue.lowercased() == page }) {
+                router.selection = item
+            }
+        }
         // "It's something else…" splits the entry and then lands here to be labelled.
         .sheet(item: Binding(
             get: { prompts.entryToEdit },
@@ -83,6 +93,11 @@ struct ContentView: View {
             EntryEditorView(entry: entry)
                 .frame(minWidth: 480, minHeight: 520)
         }
+    }
+
+    /// What is waiting on each page: proposals to decide on Todos.
+    private func badge(for item: SidebarItem) -> Int {
+        item == .todos ? pendingProposals.count : 0
     }
 
     @ViewBuilder

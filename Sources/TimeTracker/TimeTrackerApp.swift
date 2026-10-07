@@ -13,6 +13,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainActor.assumeIsolated { Self.boot?() }
     }
+
+    /// Opening Hansel again (Spotlight, Finder, the Dock) shows the main window. A
+    /// menu-bar app otherwise does nothing visible, which looks like it did not open.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        if !hasVisibleWindows { Self.openMainWindow() }
+        return true
+    }
+
+    /// Routed through the app's URL scheme, which SwiftUI delivers to the main window
+    /// scene; a delegate has no `openWindow` of its own.
+    static func openMainWindow() {
+        if let url = URL(string: "hansel://open") { NSWorkspace.shared.open(url) }
+    }
 }
 
 @main
@@ -256,6 +269,7 @@ struct TimeTrackerApp: App {
                 // Fallback only; the app delegate normally starts everything first.
                 .task { AppDelegate.boot?() }
         }
+        .handlesExternalEvents(matching: ["open"])
 
         Settings {
             SettingsView()
@@ -269,7 +283,7 @@ struct TimeTrackerApp: App {
                 .environment(router)
                 .environment(meetingEnricher)
                 .modelContainer(container)
-                .frame(width: 760, height: 520)
+                .frame(width: 780, height: 600)
         }
     }
 

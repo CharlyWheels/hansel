@@ -34,7 +34,13 @@ struct Card<Content: View>: View {
 struct SectionHeader<Accessory: View>: View {
     let title: String
     var systemImage: String? = nil
-    @ViewBuilder var accessory: Accessory
+    var accessory: Accessory
+
+    init(_ title: String, systemImage: String? = nil, @ViewBuilder accessory: () -> Accessory) {
+        self.title = title
+        self.systemImage = systemImage
+        self.accessory = accessory()
+    }
 
     var body: some View {
         HStack(spacing: 6) {

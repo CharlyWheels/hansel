@@ -230,9 +230,12 @@ struct ProposalInboxSection: View {
                 Label("Proposed from meetings (\(pending.count))", systemImage: "tray.and.arrow.down")
                     .font(.headline)
             }
-            .padding(12)
-            .background(Color.accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
-            .padding([.horizontal, .bottom])
+            .padding(Theme.cardPadding)
+            .background(Color.accentColor.opacity(0.08),
+                        in: RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
+                .strokeBorder(Color.accentColor.opacity(0.25), lineWidth: 1))
+            .padding(.vertical, 4)
         }
     }
 }
