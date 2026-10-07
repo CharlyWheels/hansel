@@ -8,6 +8,10 @@ import Foundation
 /// whose name no longer matches its title — regenerating `meeting.md` and
 /// `transcript.md` and syncing — through its own rename. Hansel never renames
 /// folders or renders notes itself, so it cannot get Meeting Notes' formats wrong.
+///
+/// Writing back is best effort and never throws. A file in a layout Hansel does not
+/// recognise — a Meeting Notes update, a half-written file — is left exactly as it
+/// is: the name is still changed in Hansel, and only Meeting Notes keeps its own.
 enum MeetingNotesTitleWriter {
 
     static let enabledKey = "meetingNotes.writeTitles"
@@ -19,25 +23,53 @@ enum MeetingNotesTitleWriter {
     enum Outcome: Equatable {
         case written
         case alreadyCurrent
-        /// Missing file, or a meeting Meeting Notes is still working on.
-        case skipped
+        /// Left untouched; the reason is for the log.
+        case notWritten(String)
     }
 
-    static func write(title: String, toFolder folder: URL) throws -> Outcome {
-        guard let stateURL = MeetingNotesArchive.stateFile(in: folder) else { return .skipped }
-        let data = try Data(contentsOf: stateURL)
-        guard var object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: stateURL.path])
+    static func write(title: String, toFolder folder: URL) -> Outcome {
+        guard let stateURL = MeetingNotesArchive.stateFile(in: folder) else {
+            return .notWritten("no meeting file")
         }
-        // A meeting still recording or processing is Meeting Notes' to write.
-        guard (object["status"] as? String ?? "complete") == "complete" else { return .skipped }
-        if object["title"] as? String == title { return .alreadyCurrent }
+        guard let data = try? Data(contentsOf: stateURL) else { return .notWritten("unreadable") }
+
+        // Only a layout Hansel fully understands is touched: a JSON object with a
+        // string title, finished, that Hansel's own reader accepts.
+        guard var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return .notWritten("not a JSON object")
+        }
+        guard let current = object["title"] as? String else { return .notWritten("no title field") }
+        guard object["status"] as? String == "complete" else { return .notWritten("not a finished meeting") }
+        guard (try? MeetingNotesDocument.decode(data)) != nil else { return .notWritten("unrecognised layout") }
+        if current == title { return .alreadyCurrent }
+
         object["title"] = title
         // The same formatting Meeting Notes' own encoder uses.
-        let output = try JSONSerialization.data(
+        guard let output = try? JSONSerialization.data(
             withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        )
-        try output.write(to: stateURL, options: .atomic)
+        ) else { return .notWritten("could not encode") }
+
+        // Prove the rewrite changed the title and nothing else before replacing the
+        // original, so an unexpected value type can never damage the file.
+        guard var check = (try? JSONSerialization.jsonObject(with: output)) as? [String: Any],
+              check["title"] as? String == title,
+              (try? MeetingNotesDocument.decode(output)) != nil else {
+            return .notWritten("rewrite did not verify")
+        }
+        check["title"] = current
+        guard NSDictionary(dictionary: check).isEqual(to: NSDictionary(dictionary: originalObject(data))) else {
+            return .notWritten("rewrite would change other fields")
+        }
+
+        do {
+            try output.write(to: stateURL, options: .atomic)
+        } catch {
+            return .notWritten(error.localizedDescription)
+        }
         return .written
+    }
+
+    private static func originalObject(_ data: Data) -> [String: Any] {
+        (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
     }
 }

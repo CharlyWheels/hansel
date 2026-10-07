@@ -115,47 +115,94 @@ final class SpeakerClipsTests: XCTestCase {
 
 final class MeetingNotesTitleWriterTests: XCTestCase {
 
-    private func folder(with json: String) throws -> URL {
+    private func folder(with data: Data) throws -> URL {
         let url = FileManager.default.temporaryDirectory.appending(path: "mn-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        try Data(json.utf8).write(to: url.appending(path: "meeting.json"))
+        try data.write(to: url.appending(path: "meeting.json"))
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
         return url
     }
 
-    private func json(at folder: URL) throws -> [String: Any] {
-        try XCTUnwrap(JSONSerialization.jsonObject(
-            with: Data(contentsOf: folder.appending(path: "meeting.json"))) as? [String: Any])
+    private func folder(with json: String) throws -> URL { try folder(with: Data(json.utf8)) }
+
+    private func fileData(_ folder: URL) throws -> Data {
+        try Data(contentsOf: folder.appending(path: "meeting.json"))
     }
 
     func test_changesOnlyTheTitleAndKeepsEverythingElse() throws {
-        let url = try folder(with: """
-        {"id":"36FD4896-DFCB-46C2-AB5C-4014D4EB94FF","status":"complete","title":"Review Lulu apps",
-         "startedAt":"2026-10-07T13:28:40Z","transcriptionVersion":1,
-         "insights":{"topics":[{"title":"Keep me"}]},
-         "transcript":[{"start":4.4799999999999995,"end":5.6,"text":"a/b","speaker":"Unknown"}]}
-        """)
-        defer { try? FileManager.default.removeItem(at: url) }
-        XCTAssertEqual(try MeetingNotesTitleWriter.write(title: "Solution Engineers Meeting", toFolder: url), .written)
+        let original = MeetingNotesImportTests.sampleJSON(title: "Review Lulu apps")
+        let url = try folder(with: original)
+        XCTAssertEqual(MeetingNotesTitleWriter.write(title: "Solution Engineers Meeting", toFolder: url), .written)
 
-        let object = try json(at: url)
-        XCTAssertEqual(object["title"] as? String, "Solution Engineers Meeting")
-        XCTAssertEqual(object["startedAt"] as? String, "2026-10-07T13:28:40Z")
-        XCTAssertEqual(object["transcriptionVersion"] as? Int, 1)
-        let topics = (object["insights"] as? [String: Any])?["topics"] as? [[String: Any]]
-        XCTAssertEqual(topics?.first?["title"] as? String, "Keep me", "nested titles are untouched")
-        let turn = (object["transcript"] as? [[String: Any]])?.first
-        XCTAssertEqual(turn?["start"] as? Double, 4.4799999999999995)
-        XCTAssertEqual(turn?["text"] as? String, "a/b")
-
-        // The result still decodes the way Hansel (and Meeting Notes) read it.
+        var after = try XCTUnwrap(JSONSerialization.jsonObject(with: fileData(url)) as? [String: Any])
+        XCTAssertEqual(after["title"] as? String, "Solution Engineers Meeting")
+        after["title"] = "Review Lulu apps"
+        let before = try XCTUnwrap(JSONSerialization.jsonObject(with: original) as? [String: Any])
+        XCTAssertEqual(NSDictionary(dictionary: after), NSDictionary(dictionary: before))
         XCTAssertEqual(try MeetingNotesArchive.load(url).title, "Solution Engineers Meeting")
-        XCTAssertEqual(try MeetingNotesTitleWriter.write(title: "Solution Engineers Meeting", toFolder: url), .alreadyCurrent)
+        XCTAssertEqual(MeetingNotesTitleWriter.write(title: "Solution Engineers Meeting", toFolder: url), .alreadyCurrent)
     }
 
-    func test_neverTouchesAMeetingStillInProgress() throws {
-        let url = try folder(with: #"{"status":"recording","title":"Live"}"#)
+    /// Whatever the file looks like, writing never throws and never alters a file it
+    /// does not fully understand.
+    func test_unexpectedFilesAreLeftByteForByteUntouched() throws {
+        let cases: [String] = [
+            "",                                                     // empty
+            "{ not json",                                           // truncated
+            "[1, 2, 3]",                                            // not an object
+            #"{"status":"complete","name":"Renamed field"}"#,      // title moved
+            #"{"status":"complete","title":42}"#,                  // title not a string
+            #"{"title":"Live","status":"recording"}"#,             // still recording
+            #"{"title":"No status"}"#,                              // status missing
+            #"{"title":"New layout","status":"complete","meeting":{}}"#,  // unrecognised layout
+        ]
+        for json in cases {
+            let url = try folder(with: json)
+            let outcome = MeetingNotesTitleWriter.write(title: "Other", toFolder: url)
+            guard case .notWritten = outcome else { return XCTFail("\(json): \(outcome)") }
+            XCTAssertEqual(try fileData(url), Data(json.utf8), json)
+        }
+        let empty = FileManager.default.temporaryDirectory.appending(path: "mn-none-\(UUID().uuidString)")
+        guard case .notWritten = MeetingNotesTitleWriter.write(title: "x", toFolder: empty) else {
+            return XCTFail("a missing file is not written")
+        }
+    }
+}
+
+@MainActor
+final class MeetingTitleResilienceTests: XCTestCase {
+
+    func test_renamingInHanselWorksWhenMeetingNotesFileIsBroken() throws {
+        let container = try AppModelContainer.inMemory()
+        let ctx = container.mainContext
+        let url = FileManager.default.temporaryDirectory.appending(path: "mn-broken-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: url) }
-        XCTAssertEqual(try MeetingNotesTitleWriter.write(title: "Other", toFolder: url), .skipped)
-        XCTAssertEqual(try json(at: url)["title"] as? String, "Live")
+        try Data("{ broken".utf8).write(to: url.appending(path: "meeting.json"))
+
+        let entry = TimeEntry(title: "Review Lulu apps")
+        ctx.insert(entry)
+        let record = MeetingRecord(id: UUID(), title: "Review Lulu apps", startedAt: Date(),
+                                   folderPath: url.path, fileModifiedAt: Date())
+        record.linkedEntryID = entry.id
+        ctx.insert(record)
+        try ctx.save()
+
+        entry.title = "Solution Engineers Meeting"
+        MeetingTitleSync.entrySaved(entry, context: ctx)
+        XCTAssertEqual(record.title, "Solution Engineers Meeting", "Hansel's name changes regardless")
+        XCTAssertFalse(record.titleWrittenToNotes)
+        XCTAssertEqual(try Data(contentsOf: url.appending(path: "meeting.json")), Data("{ broken".utf8))
+    }
+
+    func test_anEmptyTitleFromMeetingNotesNeverReplacesTheUsersName() throws {
+        let doc = try MeetingNotesDocument.decode(MeetingNotesImportTests.sampleJSON(title: ""))
+        let record = MeetingRecord(id: doc.id, title: "Solution Engineers Meeting", startedAt: doc.startedAt,
+                                   folderPath: "/a/m", fileModifiedAt: Date())
+        record.titleIsUserSet = true
+        record.titleWrittenToNotes = true
+        MeetingImporter.update(record, from: doc,
+                               entry: MeetingNotesArchive.Entry(folder: URL(fileURLWithPath: "/a/m"), modifiedAt: Date()))
+        XCTAssertEqual(record.title, "Solution Engineers Meeting")
     }
 }

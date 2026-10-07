@@ -132,8 +132,12 @@ final class MeetingImporter {
     static func update(_ record: MeetingRecord, from doc: MeetingNotesDocument, entry: MeetingNotesArchive.Entry) {
         if !record.titleIsUserSet {
             record.title = doc.title
-        } else if record.titleWrittenToNotes, doc.title != record.title {
+        } else if record.titleWrittenToNotes,
+                  !doc.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  doc.title != record.title {
             // Renamed in Meeting Notes after Hansel wrote its name there: newest wins.
+            // An empty title is a broken file, not a rename, and never replaces the
+            // user's name.
             record.title = doc.title
         }
         record.startedAt = doc.startedAt
