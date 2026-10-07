@@ -57,6 +57,9 @@ struct ProposalRow: View {
                 chip("No project", systemImage: "folder", color: .secondary)
             }
             if let customer { chip(customer.name, systemImage: "person.2", color: .secondary) }
+            if let saidBy = proposal.saidBy {
+                chip("said by \(saidBy)", systemImage: "person.wave.2", color: .secondary)
+            }
             if let due = proposal.dueAt {
                 chip(due.formatted(date: .abbreviated, time: .omitted), systemImage: "calendar", color: .orange)
             }

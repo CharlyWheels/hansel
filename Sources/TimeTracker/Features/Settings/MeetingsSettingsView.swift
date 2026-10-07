@@ -43,9 +43,10 @@ struct MeetingsSettingsView: View {
                 Text("Hansel reads finished meetings from the folder Meeting Notes archives to (it follows that app's setting unless you choose one here). It only reads; nothing in the archive is changed.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            VoicesSettingsSection()
             Section("Proposed todos") {
                 TextField("Names you go by", text: $myNames, prompt: Text(NSFullUserName()))
-                Text("Comma-separated, e.g. \"Carlos, Carlos Rueda\". Meeting Notes does not know who is speaking; when its summary assigns a task to someone whose name is not one of these, the proposal is marked as probably for someone else.")
+                Text("Comma-separated, e.g. \"Carlos, Carlos Rueda\". When the summary assigns a task to someone whose name is not one of these, the proposal is marked as probably for someone else. Each proposal also shows who was speaking when it came up, once voices are identified.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Learning from your decisions") {

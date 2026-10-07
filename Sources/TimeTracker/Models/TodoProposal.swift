@@ -30,6 +30,8 @@ final class TodoProposal {
     /// Seconds from the start of the recording.
     var timestampSeconds: Double?
     var likelyForSomeoneElse: Bool = false
+    /// Who was speaking when the item came up, once speakers are known.
+    var saidBy: String? = nil
     /// Why Hansel thinks so, or another short warning, shown on the row.
     var hint: String?
     var enrichmentRaw: String

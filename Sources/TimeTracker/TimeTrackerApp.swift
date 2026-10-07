@@ -35,6 +35,7 @@ struct TimeTrackerApp: App {
     @State private var arbiter: FocusArbiter
     @State private var meetingImporter: MeetingImporter
     @State private var proposalService: ProposalService
+    @State private var diarization: DiarizationService
     @State private var router = MainWindowRouter()
     @State private var meetingEnricher: MeetingTaskEnricher
 
@@ -169,10 +170,35 @@ struct TimeTrackerApp: App {
         }
         importer.onRemoved = { [weak proposals] ids in proposals?.meetingsRemoved(ids) }
         let enricher = MeetingTaskEnricher(modelContext: ctx)
-        proposals.onProposalsCreated = { [weak enricher] record, document in
-            enricher?.meetingReady(record, document: document)
+        // Speakers come before the model: it judges whose task each item is better when
+        // the transcript says who said what. Diarising takes seconds.
+        let speakers = DiarizationService(modelContext: ctx)
+        proposals.onProposalsCreated = { [weak speakers] record, _ in
+            speakers?.meetingReady(record)
         }
-        importer.onScanFinished = { [weak enricher] in enricher?.retryDue() }
+        let speakersChanged: (MeetingRecord) -> Void = { [weak ctx] record in
+            guard let ctx else { return }
+            let meetingID = record.id
+            let pending = (try? ctx.fetch(FetchDescriptor<TodoProposal>(
+                predicate: #Predicate { $0.meetingID == meetingID }
+            ))) ?? []
+            ProposalFactory.applySpeakers(DiarizationService.timeline(for: record, context: ctx), to: pending)
+            MeetingContextResolver.applySpeakerCustomer(record: record, proposals: pending, context: ctx)
+            try? ctx.save()
+        }
+        let nameSuggester = SpeakerNameSuggester(modelContext: ctx)
+        speakers.onFinished = { [weak enricher] record in
+            speakersChanged(record)
+            Task { await nameSuggester.suggest(for: record) }
+            if let document = try? MeetingNotesArchive.load(record.folderURL) {
+                enricher?.meetingReady(record, document: document)
+            }
+        }
+        speakers.onNamesChanged = speakersChanged
+        importer.onScanFinished = { [weak enricher, weak speakers] in
+            speakers?.retryDue()
+            enricher?.retryDue()
+        }
         // Past decisions shape the next proposals: rules first, then the model's examples.
         proposals.learned = { [weak ctx] record in
             guard let ctx else { return (nil, nil) }
@@ -186,6 +212,7 @@ struct TimeTrackerApp: App {
         }
         _meetingEnricher = State(wrappedValue: enricher)
         _proposalService = State(wrappedValue: proposals)
+        _diarization = State(wrappedValue: speakers)
         AppLogger.ui.info("TimeTrackerApp launched")
         AppLogger.log("ui", level: .info, "launch")
 
@@ -206,6 +233,7 @@ struct TimeTrackerApp: App {
                 .environment(promptCenter)
                 .environment(meetingImporter)
                 .environment(proposalService)
+                .environment(diarization)
                 .environment(router)
                 .environment(meetingEnricher)
                 .modelContainer(container)
@@ -224,6 +252,7 @@ struct TimeTrackerApp: App {
                 .environment(promptCenter)
                 .environment(meetingImporter)
                 .environment(proposalService)
+                .environment(diarization)
                 .environment(router)
                 .environment(meetingEnricher)
                 .modelContainer(container)
@@ -239,6 +268,7 @@ struct TimeTrackerApp: App {
                 .environment(promptCenter)
                 .environment(meetingImporter)
                 .environment(proposalService)
+                .environment(diarization)
                 .environment(router)
                 .environment(meetingEnricher)
                 .modelContainer(container)

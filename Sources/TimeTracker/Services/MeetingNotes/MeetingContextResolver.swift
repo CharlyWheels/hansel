@@ -17,6 +17,51 @@ enum MeetingContextResolver {
         case timeEntry = "from the meeting's time entry"
         case pastEntry = "from past entries with this title"
         case attendees = "from the attendees' email domains"
+        case speakers = "from the people who spoke"
+    }
+
+    /// The customer of the identified people who spoke, by talk time, the user excluded:
+    /// their own customer, or the one owning their email domain.
+    static func customerFromSpeakers(
+        _ speakers: [(profile: SpeakerProfile, seconds: Double)],
+        customers: [Customer]
+    ) -> Customer? {
+        var seconds: [UUID: Double] = [:]
+        for (profile, talk) in speakers where !profile.isMe {
+            let customer = profile.customerID.flatMap { id in customers.first { $0.id == id } }
+                ?? profile.email.flatMap(CustomerMatcher.domain(ofEmail:)).flatMap {
+                    CustomerMatcher.customer(forDomains: [$0], in: customers)
+                }
+            if let customer { seconds[customer.id, default: 0] += talk }
+        }
+        guard let best = seconds.max(by: { $0.value < $1.value }) else { return nil }
+        return customers.first { $0.id == best.key }
+    }
+
+    /// Fills project and customer on undecided proposals that have neither, once the
+    /// speakers are known. Proposals the user touched are left alone.
+    @MainActor
+    static func applySpeakerCustomer(record: MeetingRecord, proposals: [TodoProposal], context: ModelContext) {
+        let recordID = record.id
+        let speakers = (try? context.fetch(FetchDescriptor<MeetingSpeaker>(
+            predicate: #Predicate { $0.meetingID == recordID }
+        ))) ?? []
+        let profiles = (try? context.fetch(FetchDescriptor<SpeakerProfile>())) ?? []
+        let named = speakers.compactMap { s in
+            s.profileID.flatMap { id in profiles.first { $0.id == id } }.map { (profile: $0, seconds: s.speechSeconds) }
+        }
+        let customers = (try? context.fetch(FetchDescriptor<Customer>())) ?? []
+        guard let customer = customerFromSpeakers(named, customers: customers) else { return }
+        let projects = (try? context.fetch(FetchDescriptor<Project>())) ?? []
+        let theirs = projects.filter { $0.customer?.id == customer.id }
+        for proposal in proposals where proposal.isPending && proposal.customerID == nil && proposal.projectID == nil
+            && proposal.projectID == proposal.suggestedProjectID {
+            proposal.customerID = customer.id
+            if theirs.count == 1 {
+                proposal.projectID = theirs[0].id
+                proposal.suggestedProjectID = theirs[0].id
+            }
+        }
     }
 
     /// The entry that covers most of the meeting. It must cover at least half of it (or

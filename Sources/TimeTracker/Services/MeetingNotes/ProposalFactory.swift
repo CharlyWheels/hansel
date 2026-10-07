@@ -104,6 +104,14 @@ enum ProposalFactory {
         return proposal
     }
 
+    /// Records who was speaking when each item came up. Only a hint for the user and
+    /// the model: whoever says a task is often asking someone else to do it.
+    static func applySpeakers(_ timeline: SpeakerTimeline?, to proposals: [TodoProposal]) {
+        for proposal in proposals where proposal.isPending {
+            proposal.saidBy = proposal.timestampSeconds.flatMap { timeline?.name(at: $0) }
+        }
+    }
+
     static func sourceKey(meetingID: UUID, index: Int) -> String {
         "\(meetingID.uuidString)#\(index)"
     }

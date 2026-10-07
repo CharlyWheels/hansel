@@ -64,6 +64,8 @@ final class MeetingTaskEnricher {
             predicate: #Predicate { $0.aiEnrichedAt == nil && $0.startedAt >= since }
         ))) ?? []
         for record in records where record.aiAttempts < Self.maxAttempts && !inFlight.contains(record.id) {
+            // Wait for speakers, so the model sees who said what.
+            if DiarizationService.isPending(record, now: now) { continue }
             guard let document = try? MeetingNotesArchive.load(record.folderURL) else { continue }
             guard record.proposalsCreatedAt != nil || document.insights == nil else { continue }
             Task { await enrich(record, document: document) }
@@ -170,6 +172,7 @@ final class MeetingTaskEnricher {
         projects: [MeetingTaskPrompt.CatalogProject]
     ) -> MeetingTaskPrompt.Input {
         let withTranscript = Self.includesTranscript && !document.transcript.isEmpty
+        let speakers = DiarizationService.timeline(for: record, context: modelContext)
         let keyFor = itemKeyByProposal(document: document)
         let pendingKeys = Set(pending.compactMap(keyFor))
         let items: [MeetingTaskPrompt.Item] = document.actionItems.enumerated().compactMap { index, item in
@@ -177,11 +180,13 @@ final class MeetingTaskEnricher {
             guard pendingKeys.contains(key) else { return nil }
             return MeetingTaskPrompt.Item(
                 key: key, text: item.text, owner: item.owner, timestamp: item.timestamp,
-                excerpt: withTranscript ? item.timestamp.map { TranscriptGrouping.excerpt(document.transcript, around: $0) } : nil
+                excerpt: withTranscript
+                    ? item.timestamp.map { TranscriptGrouping.excerpt(document.transcript, around: $0, speakers: speakers) }
+                    : nil
             )
         }
         let transcript: String? = items.isEmpty && withTranscript
-            ? TranscriptGrouping.paragraphs(document.transcript).map { p in
+            ? TranscriptGrouping.paragraphs(document.transcript, speakers: speakers).map { p in
                 let who = p.speaker.label.isEmpty ? "" : "\(p.speaker.label): "
                 return "[\(TranscriptGrouping.timestamp(p.start)) = \(Int(p.start))s] \(who)\(p.text)"
             }.joined(separator: "\n")

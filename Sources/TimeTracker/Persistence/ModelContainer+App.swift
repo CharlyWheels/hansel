@@ -14,7 +14,9 @@ enum AppModelContainer {
         Todo.self,
         FocusDecision.self,
         MeetingRecord.self,
-        TodoProposal.self
+        TodoProposal.self,
+        SpeakerProfile.self,
+        MeetingSpeaker.self
     ])
 
     /// Where the previous store was moved if it could not be opened, so the UI can

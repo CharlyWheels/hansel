@@ -36,6 +36,7 @@ struct MeetingDetailView: View {
             VStack(alignment: .leading, spacing: 20) {
                 header
                 contextSection
+                SpeakersSection(meeting: meeting)
                 proposalsSection
                 if let error = loadError {
                     Label(error, systemImage: "exclamationmark.triangle")
@@ -257,7 +258,9 @@ struct MeetingDetailView: View {
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: 280)
                     let q = transcriptFilter.lowercased()
-                    let paragraphs = TranscriptGrouping.paragraphs(turns)
+                    let paragraphs = TranscriptGrouping.paragraphs(
+                        turns, speakers: DiarizationService.timeline(for: meeting, context: modelContext)
+                    )
                         .filter { q.isEmpty || $0.text.lowercased().contains(q) }
                     LazyVStack(alignment: .leading, spacing: 8) {
                         ForEach(paragraphs) { p in
@@ -270,7 +273,8 @@ struct MeetingDetailView: View {
                                     Text(p.speaker.label)
                                         .font(.caption.weight(.semibold))
                                         .foregroundStyle(p.speaker == .me ? Color.accentColor : .secondary)
-                                        .frame(width: 48, alignment: .leading)
+                                        .frame(width: 72, alignment: .leading)
+                                        .lineLimit(1)
                                 }
                                 Text(p.text).font(.callout)
                             }

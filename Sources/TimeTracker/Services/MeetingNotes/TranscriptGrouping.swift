@@ -15,6 +15,8 @@ enum TranscriptGrouping {
     /// everyone on the far end; in a room, everyone is on the microphone.
     enum Speaker: Equatable {
         case me, others, unknown
+        /// Identified by voice (`SpeakerTimeline`).
+        case person(String)
 
         init(source: String?) {
             switch source {
@@ -29,6 +31,7 @@ enum TranscriptGrouping {
             case .me: return "Me"
             case .others: return "Others"
             case .unknown: return ""
+            case .person(let name): return name
             }
         }
     }
@@ -37,6 +40,7 @@ enum TranscriptGrouping {
     /// `maxGap` seconds or `maxLength` seconds of speech.
     static func paragraphs(
         _ turns: [MeetingNotesDocument.Turn],
+        speakers: SpeakerTimeline? = nil,
         maxGap: TimeInterval = 20,
         maxLength: TimeInterval = 90
     ) -> [Paragraph] {
@@ -45,7 +49,9 @@ enum TranscriptGrouping {
         for turn in turns.sorted(by: { $0.start < $1.start }) {
             let text = turn.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { continue }
-            let speaker = Speaker(source: turn.source)
+            let speaker = speakers
+                .flatMap { $0.name(track: turn.source ?? "", start: turn.start, end: turn.end) }
+                .map(Speaker.person) ?? Speaker(source: turn.source)
             if var last = out.last, last.speaker == speaker,
                turn.start - lastStart <= maxGap, turn.start - last.start <= maxLength {
                 last.text += " " + text
@@ -72,10 +78,11 @@ enum TranscriptGrouping {
         around seconds: TimeInterval,
         before: TimeInterval = 60,
         after: TimeInterval = 45,
-        limit: Int = 1200
+        limit: Int = 1200,
+        speakers: SpeakerTimeline? = nil
     ) -> String {
         let window = turns.filter { $0.start >= seconds - before && $0.start <= seconds + after }
-        let text = paragraphs(window).map { p in
+        let text = paragraphs(window, speakers: speakers).map { p in
             let who = p.speaker.label.isEmpty ? "" : "\(p.speaker.label): "
             return "[\(timestamp(p.start))] \(who)\(p.text)"
         }.joined(separator: "\n")

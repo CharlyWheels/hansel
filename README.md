@@ -136,6 +136,26 @@ the local meeting recorder, and never writes to it. It follows that app's archiv
   proposals you always decline, and (with AI on) recent declines and title rewrites as
   examples for the model. **Forget…** in Settings → Meetings deletes that history.
 
+### Who spoke (speaker identification)
+
+Meeting Notes records this Mac's microphone and the call audio as separate files but does
+not say who is speaking. Hansel splits each track into voices on this Mac
+([FluidAudio](https://github.com/FluidInference/FluidAudio): pyannote + WeSpeaker on
+CoreML, a few seconds per meeting; about 20 MB of models downloaded once):
+
+- **Who spoke** on a meeting's page lists each voice with its talk time. Name one, pick a
+  known person, or say *This is me*; on a call the main voice on your microphone is
+  suggested as you. Very short "voices" (notification chimes, echo) are ignored.
+- **Recognised next time**: naming a voice saves its voiceprint, and later meetings
+  assign it automatically when the match is close, or suggest it when it is near.
+- **AI suggestions** (only with *Refine proposals with AI* and transcript sharing on): the
+  model reads the labelled transcript ("thanks, Elena") and proposes names to confirm.
+- **What names feed**: the transcript, a *said by* chip on each proposed todo, the
+  transcript the AI refinement sees (so it can tell whose task it is), the participant
+  list, and the customer of the people who spoke when nothing else gave one.
+- Voiceprints never leave this Mac and are never sent to the AI provider. Settings →
+  Meetings → Voices lists, merges, renames and deletes them, or turns the feature off.
+
 ## Settings worth knowing
 
 - **Calendar** — choose which calendars may start tracking, and list your own email

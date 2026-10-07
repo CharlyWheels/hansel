@@ -39,6 +39,8 @@ struct MeetingNotesDocument: Decodable, Equatable {
     struct Turn: Decodable, Equatable {
         /// Seconds from the start of the recording.
         var start: TimeInterval
+        /// Seconds from the start of the recording, when Meeting Notes gives it.
+        var end: TimeInterval?
         var text: String
         /// "microphone" (this Mac's user and the room) or "system" (the far end of a call).
         var source: String?

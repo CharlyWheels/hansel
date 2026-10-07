@@ -37,6 +37,15 @@ final class MeetingRecord {
     var aiAttempts: Int = 0
     var aiLastError: String?
 
+    // MARK: Speakers
+    /// Set once both tracks were diarised (or found to have no audio).
+    var diarizedAt: Date? = nil
+    var diarizationError: String? = nil
+    /// JSON `[SpeakerSegment]`: who spoke when, per track.
+    var speakerSegments: Data? = nil
+    /// Set once the model was asked to name the speakers.
+    var speakerNamesSuggestedAt: Date? = nil
+
     init(
         id: UUID,
         title: String,
