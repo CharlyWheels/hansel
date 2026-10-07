@@ -24,7 +24,7 @@ final class MeetingDetector {
     /// Supplies conference URLs seen recently and any in-progress trustworthy event.
     var recentConferenceURL: () -> Bool = { false }
     var trustworthyMeetingInProgress: () -> Bool = { false }
-    var cameraActive: () -> Bool = { false }
+    var cameraActive: () -> Bool = { CameraActivity.isAnyCameraRunning() }
 
     private var pollTimer: Timer?
     /// Confidence must clear the entry threshold twice running before we commit.
@@ -61,6 +61,12 @@ final class MeetingDetector {
         let signals = gather()
         let (confidence, evidence) = MeetingConfidence.evaluate(signals)
         let previous = state
+        if signals.micActive && !state.isInMeeting {
+            AppLogger.log(
+                "activity", level: .debug,
+                "meeting_eval confidence=\(String(format: "%.2f", confidence)) evidence=\(evidence.map { "\($0.signal)=\($0.weight)" }.joined(separator: ","))"
+            )
+        }
 
         if state.isInMeeting {
             if confidence < MeetingConfidence.exitThreshold {
@@ -69,7 +75,13 @@ final class MeetingDetector {
                 // Some apps release the input device on mute, so a dip is weak evidence
                 // that the call ended. Require it to persist.
                 if Date().timeIntervalSince(since) >= MeetingConfidence.exitSustainSeconds {
-                    state = MeetingState(isInMeeting: false, confidence: confidence, evidence: evidence)
+                    // The call ended when the microphone closed, not a minute later
+                    // when the dip had lasted long enough to believe.
+                    let endedAt = signals.micActive ? since : min(since, audio.changedAt)
+                    state = MeetingState(
+                        isInMeeting: false, confidence: confidence, evidence: evidence,
+                        endedAt: endedAt
+                    )
                     belowExitSince = nil
                     consecutiveAboveEnter = 0
                     publish(previous)
@@ -123,7 +135,8 @@ final class MeetingDetector {
     private func gather() -> MeetingSignals {
         var signals = MeetingSignals()
         signals.micActive = audio.isCapturing
-        signals.isIdleOrLocked = idleMonitor?.isIdle == true
+        // Only a lock or sleep says the user left. Not typing during a call is normal.
+        signals.isIdleOrLocked = idleMonitor.map { $0.isScreenLocked || $0.isAsleep } ?? false
 
         // Everything below is only meaningful while something is capturing, so skip it
         // entirely otherwise — this is what keeps the 20 s timer free at idle.

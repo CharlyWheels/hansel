@@ -132,6 +132,26 @@ enum ConferenceCatalog {
 
     static func isConferenceApp(_ bundleId: String) -> Bool { app(forBundleId: bundleId) != nil }
 
+    /// Helper processes that hold the microphone on behalf of a conference app. The
+    /// new Teams captures audio from `com.microsoft.teams2.modulehost` and Zoom from
+    /// `us.zoom.caphost`, so an exact match on the main bundle id never fired.
+    private static let helperPrefixes: [(prefix: String, owner: String)] = [
+        ("com.microsoft.teams2.", "com.microsoft.teams2"),
+        ("com.microsoft.teams.", "com.microsoft.teams"),
+        ("us.zoom.", "us.zoom.xos"),
+        ("com.tinyspeck.slackmacgap.", "com.tinyspeck.slackmacgap"),
+        ("Cisco-Systems.Spark.", "Cisco-Systems.Spark"),
+    ]
+
+    /// The conference app a process belongs to, for attributing microphone use.
+    static func owningApp(forProcessBundleId bundleId: String) -> App? {
+        if let app = app(forBundleId: bundleId) { return app }
+        guard let owner = helperPrefixes.first(where: { bundleId.hasPrefix($0.prefix) })?.owner else {
+            return nil
+        }
+        return app(forBundleId: owner)
+    }
+
     static func isVetoApp(_ bundleId: String) -> Bool { vetoBundleIds.contains(bundleId) }
 
     static func isConferenceURL(_ url: String?) -> Bool {

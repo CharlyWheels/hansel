@@ -102,8 +102,17 @@ struct TimeTrackerApp: App {
             idleMonitor: idle,
             meetingProvider: meetings
         )
+        // The same calendar rules that name the meeting corroborate the call: any event
+        // with other people or a video link, in progress and not declined.
         meeting.trustworthyMeetingInProgress = { [weak meetings] in
-            meetings?.trustworthyMeetingInProgress() ?? false
+            guard let meetings else { return false }
+            let now = Date()
+            return JoinedMeetingResolver.resolve(
+                callSince: now,
+                meetings: meetings.meetings(from: now, to: now.addingTimeInterval(600)),
+                now: now,
+                allowedCalendarIds: meetings.allowedCalendarIds
+            )?.meeting.isRealMeeting == true
         }
         let store = FocusStore(modelContext: ctx, timerController: ctrl, meetingProvider: meetings)
         let prompts = FocusPromptCenter(timerController: ctrl, store: store, modelContext: ctx)
@@ -141,10 +150,24 @@ struct TimeTrackerApp: App {
         deps.persistBudget = { $0.persist() }
         deps.joinedMeeting = { [weak meeting, weak meetings] in
             guard UserDefaults.standard.object(forKey: "autoSwitchOnMeetingJoin") as? Bool ?? true,
-                  let state = meeting?.state, state.isInMeeting,
-                  let current = meetings?.currentMeeting(), current.isRealMeeting else { return nil }
-            return (current, state.since ?? Date())
+                  let state = meeting?.state, state.isInMeeting, let meetings else { return nil }
+            let now = Date()
+            return JoinedMeetingResolver.resolve(
+                callSince: state.since ?? now,
+                meetings: meetings.meetings(from: now.addingTimeInterval(-4 * 3600), to: now.addingTimeInterval(600)),
+                now: now,
+                allowedCalendarIds: meetings.allowedCalendarIds
+            )
         }
+        deps.isLockedOrAsleep = { [weak idle] in idle.map { $0.isScreenLocked || $0.isAsleep } ?? false }
+        deps.inCall = { [weak meeting] in meeting?.state.isInMeeting ?? false }
+        deps.callEndedAt = { [weak meeting] in meeting?.state.endedAt }
+        deps.autoStopOnMeetingEnd = {
+            (UserDefaults.standard.object(forKey: "autoSwitchOnMeetingJoin") as? Bool ?? true)
+                && (UserDefaults.standard.object(forKey: "autoStopOnMeetingEnd") as? Bool ?? true)
+        }
+        deps.stopMeetingEntry = { [weak prompts] id, at in prompts?.stopForMeetingEnd(entryID: id, at: at) }
+        deps.resumeEntry = { [weak prompts] id in prompts?.resumeEntry(id) ?? false }
         deps.labelsForMeeting = { [weak ctx] meeting in
             guard let ctx else { return (nil, nil, nil) }
             let (role, project, customer) = CalendarService.classify(title: meeting.title, context: ctx)
@@ -162,6 +185,10 @@ struct TimeTrackerApp: App {
         watch.onModelCall = { [weak focusArbiter] in focusArbiter?.noteExternalModelCall() }
         watch.currentMeetingTitle = { [weak meetings] in meetings?.currentMeeting()?.title }
         prompts.onResolved = { [weak focusArbiter] in focusArbiter?.userResponded() }
+        // React to a call starting or ending at once rather than on the next 30 s tick.
+        meeting.onChange = { [weak focusArbiter] _, _ in
+            Task { @MainActor in await focusArbiter?.tick() }
+        }
 
         _controller = State(wrappedValue: ctrl)
         _activityMonitor = State(wrappedValue: activity)

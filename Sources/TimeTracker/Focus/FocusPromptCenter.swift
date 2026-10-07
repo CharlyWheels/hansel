@@ -48,6 +48,15 @@ final class FocusPromptCenter {
         let title: String
     }
 
+    /// A meeting entry closed because its call ended, for the UI to offer "Keep running".
+    struct MeetingEndNotice: Equatable {
+        let entryID: UUID
+        let title: String
+        let endedAt: Date
+        let appliedAt: Date
+    }
+    private(set) var meetingEnded: MeetingEndNotice?
+
     /// An unanswered question must not freeze tracking forever.
     var timeoutMinutes: Int {
         max(1, UserDefaults.standard.object(forKey: "switchPromptTimeoutMinutes") as? Int ?? 10)
@@ -82,6 +91,9 @@ final class FocusPromptCenter {
         if let undoable, undoable.newEntryID != id {
             self.undoable = nil
         }
+        if id != nil, let meetingEnded, meetingEnded.entryID != id {
+            self.meetingEnded = nil
+        }
     }
 
     private var expiryTimer: Timer?
@@ -104,6 +116,12 @@ final class FocusPromptCenter {
     // MARK: - Presenting
 
     func present(_ action: FocusPolicy.Action, decisionID: UUID, previousTitle: String) {
+        // An automatic switch needs nothing running: joining a meeting from idle
+        // starts its entry.
+        if case let .switchTo(p) = action {
+            applyImmediately(p, decisionID: decisionID)
+            return
+        }
         guard let fromEntryID = timerController?.runningEntry?.id else {
             update(decisionID: decisionID, response: .superseded, toEntryID: nil)
             return
@@ -113,8 +131,7 @@ final class FocusPromptCenter {
         switch action {
         case let .ask(p): proposal = p; isCorrection = false
         case let .correctInPlace(p): proposal = p; isCorrection = true
-        case let .switchTo(p): applyImmediately(p, decisionID: decisionID); return
-        case .keep: return
+        case .switchTo, .keep: return
         }
         // A newer question replaces an older one. Close the old one in the log, but do
         // not signal `onResolved`: the arbiter is already waiting on the new one.
@@ -144,8 +161,47 @@ final class FocusPromptCenter {
     }
 
     func expireUndoIfStale(now: Date = Date()) {
-        guard let undoable else { return }
-        if now.timeIntervalSince(undoable.appliedAt) >= undoWindow { self.undoable = nil }
+        if let undoable, now.timeIntervalSince(undoable.appliedAt) >= undoWindow {
+            self.undoable = nil
+        }
+        if let meetingEnded, now.timeIntervalSince(meetingEnded.appliedAt) >= undoWindow {
+            self.meetingEnded = nil
+        }
+    }
+
+    // MARK: - Meeting end
+
+    /// Closes a meeting's entry where its call ended.
+    func stopForMeetingEnd(entryID: UUID, at endedAt: Date) {
+        guard let controller = timerController, let entry = controller.runningEntry,
+              entry.id == entryID else { return }
+        let title = entry.title
+        controller.stop(at: endedAt)
+        meetingEnded = MeetingEndNotice(entryID: entryID, title: title, endedAt: endedAt, appliedAt: Date())
+    }
+
+    /// "Keep running": the meeting was not over after all.
+    func keepMeetingRunning() {
+        guard let notice = meetingEnded else { return }
+        meetingEnded = nil
+        if resumeEntry(notice.entryID) {
+            AppLogger.log("timer", level: .info, "meeting_end_undone")
+        }
+    }
+
+    func dismissMeetingEnded() {
+        meetingEnded = nil
+    }
+
+    /// Re-opens a closed entry, provided nothing else has started since.
+    @discardableResult
+    func resumeEntry(_ id: UUID) -> Bool {
+        guard let controller = timerController, !controller.isRunning else { return false }
+        let descriptor = FetchDescriptor<TimeEntry>(predicate: #Predicate<TimeEntry> { $0.id == id })
+        guard let entry = try? modelContext.fetch(descriptor).first else { return false }
+        meetingEnded = nil
+        controller.resume(entry)
+        return true
     }
 
     // MARK: - Answers
@@ -258,13 +314,18 @@ final class FocusPromptCenter {
         let outcome = controller.switchTo(
             plan, boundaryAt: proposal.boundaryAt, source: .aiSwitch
         )
-        if case let .switched(closed, opened, _) = outcome {
+        switch outcome {
+        case let .switched(closed, opened, _):
             undoable = UndoRecord(
                 decisionID: decisionID,
                 previousEntryID: closed, newEntryID: opened,
                 appliedAt: Date(), title: plan.title
             )
             update(decisionID: decisionID, response: nil, toEntryID: opened)
+        case let .started(id), let .correctedInPlace(id):
+            update(decisionID: decisionID, response: nil, toEntryID: id)
+        case .rejected:
+            break
         }
         onResolved?()
     }

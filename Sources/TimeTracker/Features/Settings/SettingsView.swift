@@ -46,6 +46,7 @@ struct TrackingSettingsView: View {
     @AppStorage("periodicCheckMinutes") private var periodicCheckMinutes: Int = 90
     @AppStorage("switchPromptTimeoutMinutes") private var switchPromptTimeoutMinutes: Int = 10
     @AppStorage("autoSwitchOnMeetingJoin") private var autoSwitchOnMeetingJoin: Bool = true
+    @AppStorage("autoStopOnMeetingEnd") private var autoStopOnMeetingEnd: Bool = true
     @AppStorage("longAwayMinutes") private var longAwayMinutes: Int = 60
     @State private var launchAtLogin: Bool = LaunchAtLogin.isEnabled
 
@@ -62,10 +63,12 @@ struct TrackingSettingsView: View {
 
             Section {
                 Toggle("Switch to a calendar meeting when I join it", isOn: $autoSwitchOnMeetingJoin)
+                Toggle("Stop the meeting's entry when the call ends", isOn: $autoStopOnMeetingEnd)
+                    .disabled(!autoSwitchOnMeetingJoin)
             } header: {
                 Text("Meetings")
             } footer: {
-                Text("A meeting with other people or a video link, in progress, with your microphone on, replaces the running entry without asking. Undo from the menu bar for 15 minutes. Personal calendar blocks never trigger it.")
+                Text("When you are in a call during a calendar meeting — microphone on, with Teams, Zoom or another call app, or the camera — the entry takes the meeting's name from your calendar, starting when the call did, and back-to-back meetings each get their own entry. Hanging up closes the entry at that moment. Both can be undone from the menu bar for 15 minutes.")
             }
 
             Section {

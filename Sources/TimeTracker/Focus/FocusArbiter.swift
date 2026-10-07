@@ -48,6 +48,18 @@ final class FocusArbiter {
         var joinedMeeting: () -> (meeting: MeetingWindow, since: Date)? = { nil }
         /// Role / project / customer names learned from past entries with this title.
         var labelsForMeeting: (MeetingWindow) -> (role: String?, project: String?, customer: String?) = { _ in (nil, nil, nil) }
+        /// Screen locked or Mac asleep. Plain keyboard idleness is not this: listening
+        /// on a call without typing must not stop the timer following the meetings.
+        var isLockedOrAsleep: () -> Bool = { false }
+        /// Whether a call is in progress, and when the last one ended.
+        var inCall: () -> Bool = { false }
+        var callEndedAt: () -> Date? = { nil }
+        /// Whether a meeting's entry is closed when its call ends.
+        var autoStopOnMeetingEnd: () -> Bool = { true }
+        /// Closes the running entry at the given instant, offering to keep it running.
+        var stopMeetingEntry: (UUID, Date) -> Void = { _, _ in }
+        /// Re-opens an entry closed by a call that turned out not to have ended.
+        var resumeEntry: (UUID) -> Bool = { _ in false }
     }
 
     enum Phase: Equatable {
@@ -76,6 +88,13 @@ final class FocusArbiter {
     private var loggedSuppressions: Set<String> = []
     /// Meetings already switched to (or found already tracked), so an undo sticks.
     private var handledMeetingJoins: Set<String> = []
+    /// The meeting whose entry is running because the user joined its call; closed
+    /// when the call ends.
+    private var trackedMeeting: (eventId: String, entryID: UUID, title: String)?
+    /// A meeting entry just closed by its call ending, in case the call comes back.
+    private var endedMeeting: (eventId: String, entryID: UUID, at: Date)?
+    /// A call that drops and comes back within this window resumes the same entry.
+    static let rejoinWindow: TimeInterval = 15 * 60
     private var recentPromptTimes: [Date] = []
     private var pollTimer: Timer?
 
@@ -110,17 +129,22 @@ final class FocusArbiter {
         let now = deps.now()
         let config = settings()
 
-        // 0. Nothing is worth doing while the user is away. Idle never changes an entry
-        //    here; `EntryCompletionService` removes the away time on return.
-        if deps.isIdle() { return }
-
-        // 1. Joining a calendar meeting is the one switch made without asking. The
-        //    evidence is unambiguous — a real meeting is on the calendar and the
-        //    microphone is on — and the user asked for it. It stays undoable.
-        if phase != .consulting, let entry = deps.currentEntry(),
-           switchToJoinedMeetingIfNeeded(entry: entry, now: now) {
-            return
+        // 0. Meetings follow the call, made without asking because the user asked for
+        //    exactly that. A call ending closes its entry where the call ended — safe
+        //    even if the user has since walked away. Joining one names the entry after
+        //    the meeting, also while the user listens without touching the keyboard,
+        //    which is most of a meeting. Both stay undoable.
+        if phase != .consulting {
+            if stopEndedMeetingIfNeeded(now: now) { return }
+            if !deps.isLockedOrAsleep(),
+               switchToJoinedMeetingIfNeeded(entry: deps.currentEntry(), now: now) {
+                return
+            }
         }
+
+        // 1. Nothing else is worth doing while the user is away. Idle never changes an
+        //    entry here; `EntryCompletionService` removes the away time on return.
+        if deps.isIdle() { return }
 
         // 2. A question is outstanding. Only a hard boundary may supersede it, so an
         //    unanswered prompt cannot block a meeting from being noticed.
@@ -134,6 +158,13 @@ final class FocusArbiter {
         //     here only spent budget on answers that were then discarded as stale.
         guard let entry = deps.currentEntry() else { return }
         pruneHandled(now: now)
+
+        // 3c. During a meeting's call the entry is that meeting. Glancing at mail or a
+        //     document mid-call is not a new task, and asking about it is noise.
+        if let tracked = trackedMeeting, deps.inCall(),
+           tracked.entryID == entry.id || entry.title.caseInsensitiveCompare(tracked.title) == .orderedSame {
+            return
+        }
 
         // 4. Never overwrite a human. Editing an entry by hand buys protection.
         if let edited = deps.lastManualEditAt(),
@@ -296,16 +327,34 @@ final class FocusArbiter {
 
     // MARK: - Meeting join
 
-    private func switchToJoinedMeetingIfNeeded(entry: EntryContext, now: Date) -> Bool {
+    private func switchToJoinedMeetingIfNeeded(entry: EntryContext?, now: Date) -> Bool {
         guard let (meeting, since) = deps.joinedMeeting() else { return false }
+
+        // A call that dropped and came back (some apps release the microphone for a
+        // while): reopen the entry its end closed instead of starting a second one.
+        if let ended = endedMeeting, ended.eventId == meeting.eventId {
+            endedMeeting = nil
+            if entry == nil, now.timeIntervalSince(ended.at) < Self.rejoinWindow,
+               deps.resumeEntry(ended.entryID) {
+                trackedMeeting = (meeting.eventId, ended.entryID, meeting.title)
+                AppLogger.log("timer", level: .info, "meeting_rejoin_resumed event=\(meeting.eventId)")
+                return true
+            }
+        }
+
         guard !handledMeetingJoins.contains(meeting.eventId) else { return false }
         handledMeetingJoins.insert(meeting.eventId)
 
-        // Already tracking it: started from this meeting, or the user named it.
-        if entry.title.caseInsensitiveCompare(meeting.title) == .orderedSame { return false }
-        // The user started something by hand after the meeting began: that was a
-        // deliberate choice, and overriding it is exactly what they would not want.
-        if let lastEdit = deps.lastManualEditAt(), lastEdit >= meeting.start { return false }
+        if let entry {
+            // Already tracking it: started from this meeting, or the user named it.
+            if entry.title.caseInsensitiveCompare(meeting.title) == .orderedSame {
+                trackedMeeting = (meeting.eventId, entry.id, entry.title)
+                return false
+            }
+            // The user started something by hand after the meeting began: that was a
+            // deliberate choice, and overriding it is exactly what they would not want.
+            if let lastEdit = deps.lastManualEditAt(), lastEdit >= meeting.start { return false }
+        }
 
         // The meeting began when the call did, but never before the event's start
         // nor more than 30 minutes back.
@@ -318,7 +367,7 @@ final class FocusArbiter {
             todo: nil,
             confidence: 1,
             rationale: "Joined a calendar meeting.",
-            evidence: "Microphone on during \"\(meeting.title)\""
+            evidence: "In a call during \"\(meeting.title)\""
         )
         let decision = FocusDecision(
             kind: .autoSwitched,
@@ -329,17 +378,39 @@ final class FocusArbiter {
             reasons: [.meetingStart],
             evidence: proposal.evidence,
             rationale: proposal.rationale,
-            previousTitle: entry.title,
+            previousTitle: entry?.title ?? "",
             proposedTitle: meeting.title,
             proposedRoleName: labels.role,
             proposedProjectName: labels.project,
             proposedCustomerName: labels.customer,
-            fromEntryID: entry.id
+            fromEntryID: entry?.id
         )
         deps.record(decision)
         phase = .watching
-        AppLogger.log("timer", level: .info, "meeting_join_switch event=\(meeting.eventId)")
+        AppLogger.log("timer", level: .info, "meeting_join_switch event=\(meeting.eventId) cold=\(entry == nil)")
         deps.apply(.switchTo(proposal), Self.meetingCandidate(meeting, at: boundary), decision.id)
+        // A new entry, or a young one the switch renamed in place.
+        if let current = deps.currentEntry(),
+           current.id != entry?.id || current.title.caseInsensitiveCompare(meeting.title) == .orderedSame {
+            trackedMeeting = (meeting.eventId, current.id, current.title)
+        }
+        return true
+    }
+
+    /// Closes the meeting's entry once its call has ended, at the moment it ended.
+    private func stopEndedMeetingIfNeeded(now: Date) -> Bool {
+        guard let tracked = trackedMeeting, !deps.inCall() else { return false }
+        trackedMeeting = nil
+        // Only the entry the meeting opened, or its continuation after an away split:
+        // if the user moved on to something else, leave it.
+        guard deps.autoStopOnMeetingEnd(), let entry = deps.currentEntry(),
+              entry.id == tracked.entryID
+                || entry.title.caseInsensitiveCompare(tracked.title) == .orderedSame
+        else { return false }
+        let at = min(now, max(deps.callEndedAt() ?? now, entry.startAt))
+        endedMeeting = (tracked.eventId, entry.id, now)
+        AppLogger.log("timer", level: .info, "meeting_end_stop event=\(tracked.eventId) at=\(at.timeIntervalSince1970)")
+        deps.stopMeetingEntry(entry.id, at)
         return true
     }
 
