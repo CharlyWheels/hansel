@@ -12,18 +12,49 @@ enum MeetingTitleSync {
     /// After the user saved an entry: every meeting linked to it takes its name.
     static func entrySaved(_ entry: TimeEntry, context: ModelContext) {
         let entryID = entry.id
-        let title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else { return }
         let records = (try? context.fetch(FetchDescriptor<MeetingRecord>(
             predicate: #Predicate { $0.linkedEntryID == entryID }
         ))) ?? []
-        for record in records where record.title != title {
-            AppLogger.log("meetings", level: .info, "title_from_entry meeting=\(record.id)")
-            record.title = title
-            record.titleIsUserSet = true
-            record.titleWrittenToNotes = false
-        }
+        // Saving an entry by hand is itself the confirmation.
+        for record in records { adoptConfirmedTitle(of: entry, into: record, savedByUser: true) }
         writePendingTitles(records)
+        try? context.save()
+    }
+
+    /// The meeting takes the name of the entry it is linked to, once the user named
+    /// or confirmed that entry — and again whenever the link moves to another entry
+    /// or the entry is renamed. Splitting an entry in two, for example, re-links the
+    /// meeting to the part that covers it, and the meeting follows.
+    static func adoptConfirmedTitle(of entry: TimeEntry, into record: MeetingRecord, savedByUser: Bool = false) {
+        let title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard entry.isHumanConfirmed || savedByUser, !title.isEmpty else { return }
+        guard record.titleEntryID != entry.id || record.titleEntryTitle != title else { return }
+        record.titleEntryID = entry.id
+        record.titleEntryTitle = title
+        guard record.title != title else { return }
+        AppLogger.log("meetings", level: .info, "title_from_entry meeting=\(record.id)")
+        record.title = title
+        record.titleIsUserSet = true
+        record.titleWrittenToNotes = false
+    }
+
+    /// Renamed on the meeting page. Kept until the linked entry changes or is renamed.
+    static func rename(_ record: MeetingRecord, to newTitle: String, context: ModelContext) {
+        let title = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+        if let entryID = record.linkedEntryID,
+           let entry = try? context.fetch(FetchDescriptor<TimeEntry>(
+               predicate: #Predicate { $0.id == entryID }
+           )).first {
+            record.titleEntryID = entry.id
+            record.titleEntryTitle = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard record.title != title else { try? context.save(); return }
+        AppLogger.log("meetings", level: .info, "title_renamed meeting=\(record.id)")
+        record.title = title
+        record.titleIsUserSet = true
+        record.titleWrittenToNotes = false
+        writePendingTitles([record])
         try? context.save()
     }
 
@@ -56,14 +87,4 @@ enum MeetingTitleSync {
     /// Attempts that did not write, so an unchanged file is not retried every scan.
     private static var failedAttempts: [UUID: WriteAttempt] = [:]
 
-    /// While linking: an entry the user named or confirmed names its meeting, unless
-    /// the meeting's name was already set by the user.
-    static func adoptConfirmedTitle(of entry: TimeEntry, into record: MeetingRecord) {
-        let title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !record.titleIsUserSet, entry.isHumanConfirmed, !title.isEmpty,
-              record.title != title else { return }
-        record.title = title
-        record.titleIsUserSet = true
-        record.titleWrittenToNotes = false
-    }
 }

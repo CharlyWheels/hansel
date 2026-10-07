@@ -206,3 +206,76 @@ final class MeetingTitleResilienceTests: XCTestCase {
         XCTAssertEqual(record.title, "Solution Engineers Meeting")
     }
 }
+
+@MainActor
+final class MeetingTitleFollowsEntryTests: XCTestCase {
+
+    private var container: ModelContainer!
+    private var ctx: ModelContext { container.mainContext }
+    private var doc: MeetingNotesDocument!
+    private var importer: MeetingImporter!
+    private let folder = MeetingNotesArchive.Entry(folder: URL(fileURLWithPath: "/a/m"), modifiedAt: Date())
+
+    override func setUp() async throws {
+        container = try AppModelContainer.inMemory()
+        doc = try MeetingNotesDocument.decode(MeetingNotesImportTests.sampleJSON(title: "CR <> SS"))
+        importer = MeetingImporter(modelContext: ctx)
+        UserDefaults.standard.set(false, forKey: MeetingNotesTitleWriter.enabledKey)
+    }
+
+    override func tearDown() async throws {
+        UserDefaults.standard.removeObject(forKey: MeetingNotesTitleWriter.enabledKey)
+    }
+
+    private func scan() {
+        importer.apply(loaded: [(folder, doc)], presentPaths: [folder.folder.path],
+                       now: doc.startedAt.addingTimeInterval(7200))
+    }
+
+    private var record: MeetingRecord { try! XCTUnwrap(ctx.fetch(FetchDescriptor<MeetingRecord>()).first) }
+
+    func test_splittingTheEntryMovesTheMeetingToThePartThatCoversIt() throws {
+        // One confirmed entry covering this meeting and the one before.
+        let wide = TimeEntry(title: "Solution Engineer Meeting",
+                             startAt: doc.startedAt.addingTimeInterval(-1800), endAt: doc.endedAt,
+                             isHumanConfirmed: true)
+        ctx.insert(wide)
+        try ctx.save()
+        scan()
+        XCTAssertEqual(record.title, "Solution Engineer Meeting")
+
+        // The user splits it: the part covering this meeting is "CR <> SS".
+        wide.endAt = doc.startedAt
+        let part = TimeEntry(title: "CR <> SS", startAt: doc.startedAt, endAt: doc.endedAt, isHumanConfirmed: true)
+        ctx.insert(part)
+        try ctx.save()
+        scan()
+        XCTAssertEqual(record.linkedEntryID, part.id)
+        XCTAssertEqual(record.title, "CR <> SS")
+    }
+
+    func test_renameOnTheMeetingPageSurvivesScansUntilTheEntryChanges() throws {
+        let entry = TimeEntry(title: "CR <> SS", startAt: doc.startedAt, endAt: doc.endedAt, isHumanConfirmed: true)
+        ctx.insert(entry)
+        try ctx.save()
+        scan()
+
+        MeetingTitleSync.rename(record, to: "Carlos / Sasha catch-up", context: ctx)
+        scan()
+        XCTAssertEqual(record.title, "Carlos / Sasha catch-up")
+
+        entry.title = "Sasha 1:1"
+        MeetingTitleSync.entrySaved(entry, context: ctx)
+        XCTAssertEqual(record.title, "Sasha 1:1")
+    }
+
+    func test_reSavingAnUnchangedEntryKeepsAManualRename() throws {
+        let entry = TimeEntry(title: "CR <> SS", startAt: doc.startedAt, endAt: doc.endedAt, isHumanConfirmed: true)
+        ctx.insert(entry)
+        try ctx.save()
+        scan()
+        MeetingTitleSync.rename(record, to: "Catch-up", context: ctx)
+        MeetingTitleSync.entrySaved(entry, context: ctx)
+        XCTAssertEqual(record.title, "Catch-up")
+    }
+}

@@ -21,6 +21,11 @@ final class MeetingRecord {
     var titleIsUserSet: Bool = false
     /// The user's name has been written into Meeting Notes' `meeting.json`.
     var titleWrittenToNotes: Bool = false
+    /// The entry, and its name, that the title was last taken from. The title follows
+    /// the entry again only when one of them changes, so a rename made afterwards —
+    /// on the meeting page or in Meeting Notes — is not undone on the next scan.
+    var titleEntryID: UUID? = nil
+    var titleEntryTitle: String? = nil
     var startedAt: Date
     var endedAt: Date?
     var status: String
