@@ -10,42 +10,90 @@ struct AnalyticsView: View {
         filter: #Predicate<TimeEntry> { $0.endAt != nil },
         sort: [SortDescriptor(\TimeEntry.startAt)]
     ) private var entries: [TimeEntry]
+    @Query private var projects: [Project]
 
+    enum Choice: String, CaseIterable, Identifiable {
+        case today = "Today", thisWeek = "This week", lastWeek = "Last week"
+        case thisMonth = "This month", lastMonth = "Last month", custom = "Custom"
+        var id: String { rawValue }
+
+        /// What the period is compared with, for "vs …" labels.
+        var comparison: String {
+            switch self {
+            case .today: return "yesterday"
+            case .thisWeek: return "last week"
+            case .lastWeek: return "the week before"
+            case .thisMonth: return "last month"
+            case .lastMonth: return "the month before"
+            case .custom: return "previous period"
+            }
+        }
+    }
+
+    @State private var choice: Choice = .thisWeek
     @State private var customFrom: Date = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
     @State private var customTo: Date = Date()
+    @State private var snapshot: AnalyticsEngine.Snapshot?
 
     @State private var exportInProgress = false
     @State private var exportError: String?
 
     private var customPeriod: Period {
         let cal = Calendar.current
-        let start = cal.startOfDay(for: customFrom)
-        let end = cal.date(bySettingHour: 23, minute: 59, second: 59, of: customTo) ?? customTo
+        let start = cal.startOfDay(for: min(customFrom, customTo))
+        let end = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: max(customFrom, customTo))) ?? customTo
         return .custom(from: start, to: end)
+    }
+
+    private var period: Period {
+        switch choice {
+        case .today: return .today
+        case .thisWeek: return .thisWeek
+        case .lastWeek: return .lastWeek
+        case .thisMonth: return .thisMonth
+        case .lastMonth: return .lastMonth
+        case .custom: return customPeriod
+        }
+    }
+
+    private var projectColors: [String: Color] {
+        var colors = ["none": Color.gray.opacity(0.6)]
+        for project in projects { colors[project.id.uuidString] = project.displayColor }
+        return colors
+    }
+
+    /// Recomputed when the period or the entries change.
+    private var reloadKey: String {
+        let i = period.interval()
+        return "\(i.start.timeIntervalSince1970)-\(i.end.timeIntervalSince1970)-\(entries.count)"
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                PageHeader("Analytics", subtitle: "Where your time went, by role, project or customer") {
+                PageHeader("Analytics", subtitle: periodSubtitle) {
                     exportMenu
                 }
-                PieChartSection(title: "Today", entries: entries, period: .today)
-                PieChartSection(title: "This Week", entries: entries, period: .thisWeek)
-                PieChartSection(title: "Previous Week", entries: entries, period: .lastWeek)
-                PieChartSection(title: "Last Month", entries: entries, period: .lastMonth)
-                PieChartSection(
-                    title: "Custom",
-                    entries: entries,
-                    period: customPeriod,
-                    customHeader: AnyView(customRangePicker)
-                )
+                periodBar
+                if let snapshot {
+                    let colors = projectColors
+                    AnalyticsSummaryTiles(snapshot: snapshot, comparison: choice.comparison)
+                    DaysChartCard(snapshot: snapshot, colors: colors)
+                    BreakdownCard(snapshot: snapshot, colors: colors, comparison: choice.comparison)
+                    HeatmapCard(snapshot: snapshot)
+                    FocusCard(snapshot: snapshot)
+                    MeetingsAnalyticsCard(snapshot: snapshot)
+                    QualityCard(snapshot: snapshot)
+                } else {
+                    ProgressView().frame(maxWidth: .infinity).padding(40)
+                }
             }
             .padding(20)
-            .frame(maxWidth: 980)
+            .frame(maxWidth: 1040)
             .frame(maxWidth: .infinity)
         }
         .navigationTitle("Analytics")
+        .task(id: reloadKey) { reload() }
         .alert("Export failed", isPresented: Binding(
             get: { exportError != nil },
             set: { if !$0 { exportError = nil } }
@@ -56,14 +104,36 @@ struct AnalyticsView: View {
         }
     }
 
-    private var customRangePicker: some View {
-        HStack(spacing: 8) {
-            Text("Range").font(.caption).foregroundStyle(.secondary)
-            DatePicker("From", selection: $customFrom, displayedComponents: [.date])
-                .labelsHidden()
-            Text("→").foregroundStyle(.secondary)
-            DatePicker("To", selection: $customTo, displayedComponents: [.date])
-                .labelsHidden()
+    private func reload() {
+        let interval = period.interval()
+        let input = AnalyticsLoader.input(for: interval, context: modelContext)
+        snapshot = AnalyticsEngine.snapshot(input, interval: interval)
+    }
+
+    private var periodSubtitle: String {
+        guard let snapshot else { return "Where your time went" }
+        let f = DateIntervalFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        let current = DateInterval(start: snapshot.interval.start, end: snapshot.interval.end.addingTimeInterval(-1))
+        let previous = DateInterval(start: snapshot.previousInterval.start,
+                                    end: snapshot.previousInterval.end.addingTimeInterval(-1))
+        return "\(f.string(from: current) ?? "") · compared with \(f.string(from: previous) ?? "")"
+    }
+
+    private var periodBar: some View {
+        HStack(spacing: 10) {
+            Picker("Period", selection: $choice) {
+                ForEach(Choice.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            if choice == .custom {
+                DatePicker("From", selection: $customFrom, displayedComponents: [.date]).labelsHidden()
+                Text("→").foregroundStyle(.secondary)
+                DatePicker("To", selection: $customTo, displayedComponents: [.date]).labelsHidden()
+            }
             Spacer()
         }
     }
@@ -72,11 +142,13 @@ struct AnalyticsView: View {
 
     private var exportMenu: some View {
         Menu {
+            Button("\(choice.rawValue) (shown)") { exportExcel(period: period) }
+            Divider()
             Button("Today") { exportExcel(period: .today) }
             Button("This Week") { exportExcel(period: .thisWeek) }
             Button("Previous Week") { exportExcel(period: .lastWeek) }
+            Button("This Month") { exportExcel(period: .thisMonth) }
             Button("Last Month") { exportExcel(period: .lastMonth) }
-            Button("Custom range") { exportExcel(period: customPeriod) }
         } label: {
             if exportInProgress {
                 ProgressView().controlSize(.small)
