@@ -21,6 +21,8 @@ struct MeetingDetailView: View {
     @State private var showTranscript = false
     @State private var transcriptFilter = ""
     @State private var editingEntry: TimeEntry?
+    @State private var renaming = false
+    @State private var newTitle = ""
     @State private var showOriginalSummary = false
     @Environment(NamedSummaryWriter.self) private var summaryWriter
     @AppStorage(NamedSummaryWriter.enabledKey) private var namedSummaryEnabled = false
@@ -47,7 +49,10 @@ struct MeetingDetailView: View {
             VStack(alignment: .leading, spacing: 20) {
                 header
                 contextSection
-                SpeakersSection(meeting: meeting)
+                SpeakersSection(meeting: meeting, lines: (document?.transcript ?? []).compactMap { turn in
+                    guard let source = turn.source, let end = turn.end else { return nil }
+                    return SpeakerClips.Line(track: source, start: turn.start, end: end, text: turn.text)
+                })
                 proposalsSection
                 if let error = loadError {
                     Label(error, systemImage: "exclamationmark.triangle")
@@ -88,7 +93,22 @@ struct MeetingDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(meeting.title).font(.title2.weight(.semibold))
+            HStack(spacing: 6) {
+                Text(meeting.title).font(.title2.weight(.semibold))
+                Button {
+                    newTitle = meeting.title
+                    renaming = true
+                } label: { Image(systemName: "pencil") }
+                .buttonStyle(.borderless)
+                .help("Rename this meeting")
+            }
+            .alert("Rename meeting", isPresented: $renaming) {
+                TextField("Name", text: $newTitle)
+                Button("Rename") { MeetingTitleSync.rename(meeting, to: newTitle, context: modelContext) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Meeting Notes is updated too. Renaming the meeting's time entry renames the meeting again.")
+            }
             HStack(spacing: 6) {
                 Text(meeting.startedAt.formatted(date: .complete, time: .shortened))
                 if let end = meeting.endedAt {

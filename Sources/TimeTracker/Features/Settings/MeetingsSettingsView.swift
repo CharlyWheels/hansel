@@ -8,6 +8,7 @@ struct MeetingsSettingsView: View {
     @State private var confirmReset = false
 
     @AppStorage(MeetingImporter.enabledKey) private var importEnabled = true
+    @AppStorage(MeetingNotesTitleWriter.enabledKey) private var writeTitles = true
     @AppStorage(MeetingNotesArchive.pathDefaultsKey) private var archivePath = ""
     @AppStorage(OwnerMatcher.namesDefaultsKey) private var myNames = ""
     @AppStorage(MeetingTaskEnricher.enabledKey) private var aiEnabled = false
@@ -18,6 +19,8 @@ struct MeetingsSettingsView: View {
         Form {
             Section("Meeting Notes archive") {
                 Toggle("Import meetings recorded with Meeting Notes", isOn: $importEnabled)
+                Toggle("Write corrected meeting names back to Meeting Notes", isOn: $writeTitles)
+                    .disabled(!importEnabled)
                 LabeledContent("Folder") {
                     HStack {
                         Text(MeetingNotesArchive.resolvedRoot().path)
@@ -41,7 +44,7 @@ struct MeetingsSettingsView: View {
                 if let error = importer.lastError {
                     Text(error).font(.caption).foregroundStyle(.orange)
                 }
-                Text("Hansel reads finished meetings from the folder Meeting Notes archives to (it follows that app's setting unless you choose one here). It only reads; nothing in the archive is changed.")
+                Text("Hansel reads finished meetings from the folder Meeting Notes archives to (it follows that app's setting unless you choose one here). When you correct a meeting's name (through its time entry), only the title in that meeting's meeting.json is changed, so Meeting Notes lists it with your name; Meeting Notes renames the folder and refreshes its notes the next time it starts. Nothing else in the archive is changed.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             VoicesSettingsSection()
