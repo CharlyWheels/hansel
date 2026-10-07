@@ -144,4 +144,30 @@ final class MeetingConfidenceTests: XCTestCase {
         XCTAssertTrue(evidence.contains { $0.signal == "mic" })
         XCTAssertTrue(evidence.contains { $0.signal == "app.running" && $0.detail == "Zoom" })
     }
+
+    func test_teamsHelperProcessCountsAsTeams() {
+        XCTAssertEqual(ConferenceCatalog.owningApp(forProcessBundleId: "com.microsoft.teams2.modulehost")?.bundleId,
+                       "com.microsoft.teams2")
+        XCTAssertEqual(ConferenceCatalog.owningApp(forProcessBundleId: "us.zoom.caphost")?.bundleId, "us.zoom.xos")
+        XCTAssertNil(ConferenceCatalog.owningApp(forProcessBundleId: "app.meetingnotes.menu"))
+
+        var signals = MeetingSignals()
+        signals.micActive = true
+        signals.micBundleIds = ["app.meetingnotes.menu", "com.microsoft.teams2.modulehost"]
+        XCTAssertGreaterThanOrEqual(MeetingConfidence.evaluate(signals).confidence, MeetingConfidence.enterThreshold)
+    }
+
+    func test_recordingTheMeetingIsAMeeting() {
+        var signals = MeetingSignals()
+        signals.micActive = true
+        signals.recordingActive = true
+        XCTAssertGreaterThanOrEqual(MeetingConfidence.evaluate(signals).confidence, MeetingConfidence.enterThreshold)
+    }
+
+    func test_microphoneAndCameraTogetherAreAVideoCall() {
+        var signals = MeetingSignals()
+        signals.micActive = true
+        signals.cameraActive = true
+        XCTAssertGreaterThanOrEqual(MeetingConfidence.evaluate(signals).confidence, MeetingConfidence.enterThreshold)
+    }
 }

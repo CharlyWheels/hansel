@@ -22,6 +22,13 @@ struct MeetingSignals: Equatable, Sendable {
     var vetoAppActive: Bool = false
     /// A calendar event that passed `AttendanceFilter` is in progress right now.
     var trustworthyMeetingInProgress: Bool = false
+    /// Meeting Notes is recording right now.
+    var recordingActive: Bool = false
+    /// The recording itself, so the meeting can be named after it.
+    var recording: ActiveRecording? = nil
+    /// Screen locked or Mac asleep. Plain keyboard inactivity is deliberately not
+    /// included: listening on a call without typing is the normal case, and counting
+    /// it against the call made a quiet meeting drop out of the meeting state.
     var isIdleOrLocked: Bool = false
 }
 
@@ -42,19 +49,27 @@ enum MeetingConfidence {
         if signals.micActive {
             // Attribution, when the OS provides it, is far stronger than a bare device
             // read: it distinguishes Zoom from a podcast recorder.
-            let attributed = signals.micBundleIds?.first { ConferenceCatalog.isConferenceApp($0) }
+            let attributed = signals.micBundleIds?.lazy.compactMap(ConferenceCatalog.owningApp).first
             if let attributed {
                 score += 0.75
-                evidence.append(.init(signal: "mic.process", detail: attributed, weight: 0.75))
+                evidence.append(.init(signal: "mic.process", detail: attributed.displayName, weight: 0.75))
             } else {
                 score += 0.45
                 evidence.append(.init(signal: "mic", detail: "input device active", weight: 0.45))
             }
         }
 
+        // Microphone and camera together are a video call.
         if signals.cameraActive {
-            score += 0.15
-            evidence.append(.init(signal: "camera", detail: "capture device active", weight: 0.15))
+            score += 0.25
+            evidence.append(.init(signal: "camera", detail: "camera on", weight: 0.25))
+        }
+
+        // The user pressed Record in Meeting Notes: they are in a meeting by their own
+        // account, which no app or calendar heuristic can beat.
+        if signals.recordingActive {
+            score += 0.50
+            evidence.append(.init(signal: "recording", detail: "recording the meeting", weight: 0.50))
         }
 
         if let app = signals.runningConferenceApps.first {
@@ -86,7 +101,7 @@ enum MeetingConfidence {
         }
         if signals.isIdleOrLocked {
             score -= 0.25
-            evidence.append(.init(signal: "veto.idle", detail: "screen locked or idle", weight: -0.25))
+            evidence.append(.init(signal: "veto.idle", detail: "screen locked or asleep", weight: -0.25))
         }
 
         return (Similarity.clamp01(score), evidence)
@@ -102,6 +117,11 @@ struct MeetingState: Equatable, Sendable {
     var appName: String? = nil
     var confidence: Double = 0
     var evidence: [MeetingEvidence] = []
+    /// A Meeting Notes recording in progress, refreshed on every evaluation so a new
+    /// recording during a running call (back-to-back meetings) is seen at once.
+    var recording: ActiveRecording? = nil
+    /// When the last call ended: the microphone closing, not when we noticed.
+    var endedAt: Date? = nil
 
     var summary: String {
         evidence.filter { $0.weight > 0 }.map(\.detail).joined(separator: " · ")
