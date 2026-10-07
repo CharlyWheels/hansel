@@ -108,6 +108,7 @@ struct MenuBarContent: View {
     private var notices: some View {
         if let pending = prompts.pending { switchCard(pending) }
         if let undo = prompts.undoable { undoCard(undo) }
+        if let ended = prompts.meetingEnded { meetingEndedCard(ended) }
         if let prompt = completion.pendingPrompt { completionCard(prompt) }
         if let notice = completion.awayNotice { awayCard(notice) }
     }
@@ -159,6 +160,25 @@ struct MenuBarContent: View {
                 Text("Switched to \"\(undo.title)\"").font(.callout).lineLimit(1)
                 Spacer()
                 Button("Undo") { prompts.undoLastSwitch() }.controlSize(.small)
+            }
+        }
+    }
+
+    private func meetingEndedCard(_ notice: FocusPromptCenter.MeetingEndNotice) -> some View {
+        Card(tint: .blue, padding: 10) {
+            VStack(alignment: .leading, spacing: 8) {
+                Label {
+                    Text("Stopped \"\(notice.title)\" when the call ended at \(hhmm(notice.endedAt))")
+                        .font(.callout).lineLimit(2)
+                } icon: {
+                    Image(systemName: "phone.down.circle.fill").foregroundStyle(.blue)
+                }
+                HStack(spacing: 6) {
+                    Button("Keep running") { prompts.keepMeetingRunning() }
+                    Spacer()
+                    Button("OK") { prompts.dismissMeetingEnded() }.buttonStyle(.borderedProminent)
+                }
+                .controlSize(.small)
             }
         }
     }

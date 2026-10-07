@@ -19,16 +19,25 @@ confidently and get them wrong.
 
 Meetings are detected rather than assumed. `AudioInputMonitor` reads whether anything is
 capturing audio (a CoreAudio property read — no permission, no orange dot), combined with
-video-call apps, conference URLs and the calendar. An accepted meeting you are visibly
-not attending scores below the threshold; a declined invitation, an all-day event or a
-block that shows as "free" scores zero.
+which process holds it (Teams and Zoom capture from helper processes, which count as the
+app), the camera being on (CoreMediaIO, no permission), a Meeting Notes recording in
+progress, video-call apps, conference URLs and the calendar. Not typing during a call does
+not count against it; only a locked screen or sleep does. An accepted meeting you are
+visibly not attending scores below the threshold; a declined invitation, an all-day event
+or a block that shows as "free" scores zero.
 
-Joining a calendar meeting is the one exception: when a meeting you are attending is in
-progress, has other attendees or a video link, and your microphone turns on, the running entry is closed and the meeting starts
-right away, from the moment the call began, with its usual project if a past entry had
-the same title. It can be undone from the menu bar for 15 minutes, and turned off in
+Meetings are the one exception to asking first. When you are in a call, the running entry
+is closed and one named after the calendar meeting starts — from when the call began, with
+its usual project if a past entry had the same title — even if nothing was running.
+Back-to-back meetings each get their own entry at their scheduled start, also while you
+just listen. When Meeting Notes is recording, the recording's title picks the event (it
+names its folder after the event you chose), which settles overlapping invitations; an
+unscheduled recorded call is named after the recording. Hanging up closes the meeting's
+entry when the call ended; if the call comes back within 15 minutes the same entry
+resumes. Both can be undone from the menu bar for 15 minutes, and turned off in
 Settings → General → Meetings. If you started a timer by hand after the meeting began,
-Hansel leaves it alone.
+Hansel leaves it alone, and it never asks whether you switched tasks during a meeting's
+call.
 
 Everything else is asked before it changes. A switch question offers three answers — *Same task*,
 *Switch*, *Something else…* — because "the boundary was wrong" and "the boundary was right
