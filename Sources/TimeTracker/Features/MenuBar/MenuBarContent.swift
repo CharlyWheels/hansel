@@ -1,10 +1,19 @@
 import SwiftUI
 import SwiftData
 
+/// The menu bar popover, built around today: the day as a strip of coloured blocks and
+/// its totals, the task in progress as a card, any question waiting as a card, and the
+/// todos, proposals and recent entries in tabs.
+///
+/// It keeps one size. When its content changed height (adding a todo, a banner
+/// appearing) the MenuBarExtra window resized while focused and was left as a black
+/// rectangle until reopened, so everything between the header and the footer scrolls
+/// in a fixed-height area.
 struct MenuBarContent: View {
     @Environment(TimerController.self) private var controller
     @Environment(EntryCompletionService.self) private var completion
     @Environment(FocusPromptCenter.self) private var prompts
+    @Environment(ProposalService.self) private var proposalService
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openWindow) private var openWindow
     @Environment(MainWindowRouter.self) private var router
@@ -12,511 +21,455 @@ struct MenuBarContent: View {
 
     @Query(sort: [SortDescriptor(\Project.name)]) private var projects: [Project]
     @Query(sort: [SortDescriptor(\Role.name)]) private var roles: [Role]
-    /// Only the five shown, not every closed entry ever recorded.
+    /// Only the few shown, not every closed entry ever recorded.
     @Query(MenuBarContent.recentDescriptor) private var recentEntries: [TimeEntry]
+    @Query(sort: [SortDescriptor(\Todo.sortOrder), SortDescriptor(\Todo.createdAt)])
+    private var allTodos: [Todo]
+
+    @State private var newTodoTitle: String = ""
+    @State private var tab: Tab = .todos
+    @FocusState private var titleFocused: Bool
+    @FocusState private var quickAddFocused: Bool
+
+    static let width: CGFloat = 380
+    static let scrollHeight: CGFloat = 470
+
+    enum Tab: Hashable { case todos, proposed, recent }
 
     private static var recentDescriptor: FetchDescriptor<TimeEntry> {
         var descriptor = FetchDescriptor<TimeEntry>(
             predicate: #Predicate<TimeEntry> { $0.endAt != nil },
             sortBy: [SortDescriptor(\TimeEntry.startAt, order: .reverse)]
         )
-        descriptor.fetchLimit = 5
+        descriptor.fetchLimit = 8
         return descriptor
     }
-    @Query(sort: [SortDescriptor(\Todo.sortOrder), SortDescriptor(\Todo.createdAt)])
-    private var allTodos: [Todo]
 
-    @State private var newTodoTitle: String = ""
-    @FocusState private var titleFocused: Bool
-
-    private var activeTodos: [Todo] {
-        allTodos.filter { !$0.isCompleted }
-    }
-
-    private var activeRootTodos: [Todo] {
-        activeTodos.filter { $0.parent == nil }
-    }
-
-    /// The popover keeps one size. When its content changed height (adding a todo, a
-    /// banner appearing) the MenuBarExtra window resized while focused and was left
-    /// as a black rectangle until reopened.
-    static let scrollHeight: CGFloat = 520
+    private var activeTodos: [Todo] { allTodos.filter { !$0.isCompleted } }
+    private var activeRootTodos: [Todo] { activeTodos.filter { $0.parent == nil } }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HanselBrandRow(iconSize: 20)
+        VStack(alignment: .leading, spacing: 0) {
+            todayHeader
+                .padding([.horizontal, .top], 14)
+                .padding(.bottom, 10)
             Divider()
             ScrollView {
-                scrollingContent
-                    .padding(.trailing, 4)
+                VStack(alignment: .leading, spacing: Theme.spacing) {
+                    PermissionBanner()
+                    notices
+                    taskCard
+                    tabs
+                }
+                .padding(14)
             }
             .frame(height: Self.scrollHeight)
             Divider()
             footer
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
         }
-        .padding(12)
-        .frame(width: 360)
+        .frame(width: Self.width)
     }
 
-    private var scrollingContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            PermissionBanner()
-            if let pending = prompts.pending {
-                switchBanner(pending)
-                Divider()
-            }
-            if let undo = prompts.undoable {
-                undoRow(undo)
-                Divider()
-            }
-            if let prompt = completion.pendingPrompt {
-                completionBanner(prompt)
-                Divider()
-            }
-            if let notice = completion.awayNotice {
-                awayBanner(notice)
-                Divider()
-            }
-            if controller.isRunning {
-                runningSection
-            } else {
-                idleSection
-            }
-            Divider()
-            if !pendingProposals.isEmpty {
-                proposalsRow
-                Divider()
-            }
-            todosSection
-            Divider()
-            recentSection
-        }
-    }
+    // MARK: - Today
 
-    // MARK: - Task-switch question
-
-    /// Three answers, not two. "Change" and "it's something else" mean different
-    /// things: the first says the boundary AND the label were right, the second says
-    /// only the boundary was. Collapsing them would record a wrong label as an accepted
-    /// proposal and teach the model its own mistake.
-    @ViewBuilder
-    private func switchBanner(_ pending: FocusPromptCenter.PendingSwitch) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "arrow.triangle.branch")
-                    .foregroundStyle(.orange)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Still on \"\(pending.previousTitle)\"?")
-                        .font(.callout.weight(.medium))
-                    if pending.hasLabel {
-                        Text("Looks like you're now on \"\(pending.proposedTitle)\".")
-                            .font(.callout)
-                    } else {
-                        Text("Something changed at \(hhmm(pending.proposal.boundaryAt)), but I can't tell what.")
-                            .font(.callout)
-                    }
-                    // Showing the evidence is what makes an automatic switch
-                    // acceptable rather than mysterious.
-                    Text(pending.proposal.evidence)
-                        .font(.caption)
+    private var todayHeader: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            let today = TodaySummary.load(context: modelContext, now: context.date)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline) {
+                    HanselLogoView(size: 18)
+                    Text("Today")
+                        .font(.headline)
+                    Text(context.date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                    Spacer()
+                    Text(DurationFormat.hoursMinutes(today.strip.trackedSeconds))
+                        .font(.headline.monospacedDigit())
                 }
+                DayStrip(model: today.strip) { key in today.colors[key] ?? .gray }
+                HStack(spacing: 10) {
+                    Label("\(today.entryCount) entr\(today.entryCount == 1 ? "y" : "ies")", systemImage: "list.bullet")
+                    Label("\(today.billablePercent)% billable", systemImage: "dollarsign.circle")
+                    Spacer()
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .labelStyle(.titleAndIcon)
             }
-            HStack(spacing: 6) {
-                Button("Same task") { prompts.keepCurrent() }
-                    .buttonStyle(.bordered)
+        }
+    }
+
+    // MARK: - Notices
+
+    @ViewBuilder
+    private var notices: some View {
+        if let pending = prompts.pending { switchCard(pending) }
+        if let undo = prompts.undoable { undoCard(undo) }
+        if let prompt = completion.pendingPrompt { completionCard(prompt) }
+        if let notice = completion.awayNotice { awayCard(notice) }
+    }
+
+    /// Three answers, not two. "Switch" and "something else" mean different things: the
+    /// first says the boundary AND the label were right, the second says only the
+    /// boundary was. Collapsing them would record a wrong label as an accepted proposal
+    /// and teach the model its own mistake.
+    private func switchCard(_ pending: FocusPromptCenter.PendingSwitch) -> some View {
+        Card(tint: .orange) {
+            VStack(alignment: .leading, spacing: 8) {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Still on \"\(pending.previousTitle)\"?")
+                            .font(.callout.weight(.semibold))
+                        if pending.hasLabel {
+                            Text("Looks like you're now on \"\(pending.proposedTitle)\".").font(.callout)
+                        } else {
+                            Text("Something changed at \(hhmm(pending.proposal.boundaryAt)), but I can't tell what.")
+                                .font(.callout)
+                        }
+                        // Showing the evidence is what makes the question make sense.
+                        Text(pending.proposal.evidence)
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                } icon: {
+                    Image(systemName: "arrow.triangle.branch").foregroundStyle(.orange)
+                }
+                HStack(spacing: 6) {
+                    Button("Same task") { prompts.keepCurrent() }
+                    Spacer()
+                    Button("Something else…") {
+                        prompts.switchAndEdit()
+                        openMainWindow()
+                    }
+                    if pending.hasLabel {
+                        Button("Switch") { prompts.applySwitch() }.buttonStyle(.borderedProminent)
+                    }
+                }
+                .controlSize(.small)
+            }
+        }
+    }
+
+    private func undoCard(_ undo: FocusPromptCenter.UndoRecord) -> some View {
+        Card(tint: .blue, padding: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.uturn.backward.circle.fill").foregroundStyle(.blue)
+                Text("Switched to \"\(undo.title)\"").font(.callout).lineLimit(1)
                 Spacer()
-                Button("Something else…") {
-                    prompts.switchAndEdit()
-                    openWindow(id: "main")
-                    NSApp.activate(ignoringOtherApps: true)
-                }
-                    .buttonStyle(.bordered)
-                if pending.hasLabel {
-                    Button("Switch") { prompts.applySwitch() }
-                        .buttonStyle(.borderedProminent)
-                }
+                Button("Undo") { prompts.undoLastSwitch() }.controlSize(.small)
             }
         }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.12)))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.orange.opacity(0.4), lineWidth: 1))
     }
 
     @ViewBuilder
-    private func undoRow(_ undo: FocusPromptCenter.UndoRecord) -> some View {
-        HStack(alignment: .center, spacing: 8) {
-            Image(systemName: "arrow.uturn.backward.circle.fill")
-                .foregroundStyle(.blue)
-            Text("Switched to \"\(undo.title)\"")
-                .font(.callout)
-                .lineLimit(1)
-            Spacer()
-            Button("Undo") { prompts.undoLastSwitch() }
-                .buttonStyle(.borderless)
-        }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.10)))
-    }
-
-    private func hhmm(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm"
-        return f.string(from: date)
-    }
-
-    // MARK: - Completion prompt banner
-
-    @ViewBuilder
-    private func completionBanner(_ prompt: EntryCompletionService.PendingPrompt) -> some View {
+    private func completionCard(_ prompt: EntryCompletionService.PendingPrompt) -> some View {
         switch prompt.kind {
         case .doneQuestion:
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "questionmark.circle.fill")
-                        .foregroundStyle(.orange)
-                    Text(prompt.message)
+            Card(tint: .orange) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(prompt.message, systemImage: "questionmark.circle.fill")
                         .font(.callout)
                         .lineLimit(3)
-                }
-                HStack {
-                    Button("End entry") { completion.confirmEnd() }
-                        .buttonStyle(.bordered)
-                        .tint(.red)
-                    Spacer()
-                    Button("Keep going") { completion.confirmContinue() }
-                        .buttonStyle(.borderedProminent)
-                }
-            }
-            .padding(10)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.12)))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.orange.opacity(0.4), lineWidth: 1))
-        }
-    }
-
-    // MARK: - Away notice
-
-    @ViewBuilder
-    private func awayBanner(_ notice: EntryCompletionService.AwayNotice) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "moon.zzz.fill")
-                    .foregroundStyle(.blue)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(notice.message)
-                        .font(.callout)
-                        .lineLimit(3)
-                    Text("Away \(hhmm(notice.from))–\(hhmm(notice.to)). Time away from the Mac isn't tracked.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            HStack(spacing: 6) {
-                if completion.canKeepAwayTime {
-                    Button("Keep that time") { completion.keepAwayTime() }
-                        .buttonStyle(.bordered)
-                }
-                Spacer()
-                Button("OK") { completion.dismissAwayNotice() }
-                    .buttonStyle(.borderedProminent)
-            }
-        }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.10)))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.blue.opacity(0.35), lineWidth: 1))
-    }
-
-    // MARK: - Running
-
-    @ViewBuilder
-    private var runningSection: some View {
-        if let entry = controller.runningEntry {
-            @Bindable var entry = entry
-            VStack(alignment: .leading, spacing: 8) {
-                TimelineView(.periodic(from: Date.distantPast, by: 1.0)) { _ in
                     HStack {
-                        Image(systemName: "record.circle.fill").foregroundStyle(.red)
-                        Text(DurationFormat.clock(controller.elapsed))
-                            .monospacedDigit()
-                            .font(.title3)
+                        Button("End entry", role: .destructive) { completion.confirmEnd() }
                         Spacer()
-                        Button("Stop", systemImage: "stop.fill") { controller.stop() }
-                            .buttonStyle(.borderedProminent)
-                            .tint(.red)
-                            .keyboardShortcut("s", modifiers: [.command])
+                        Button("Keep going") { completion.confirmContinue() }.buttonStyle(.borderedProminent)
                     }
-                }
-                TextField("What are you working on?", text: $entry.title)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($titleFocused)
-                    // Only typing counts as a human edit. The title also changes when a
-                    // switch replaces the running entry, and treating that as the user
-                    // vouching for it fed the model's own guess back as ground truth.
-                    .onChange(of: entry.title) { _, _ in
-                        if titleFocused { saveEntry() }
-                    }
-
-                HStack(spacing: 6) {
-                    rolePicker(selection: Binding(
-                        get: { entry.role },
-                        set: { entry.role = $0; entry.refreshBillableCache(); saveEntry() }
-                    ))
-                    projectPicker(selection: Binding(
-                        get: { entry.project },
-                        set: { new in
-                            entry.project = new
-                            if entry.customer == nil {
-                                entry.customer = new?.customer
-                            }
-                            entry.refreshBillableCache()
-                            saveEntry()
-                        }
-                    ))
-                }
-
-                todoPicker(selection: Binding(
-                    get: { entry.linkedTodo },
-                    set: { entry.linkedTodo = $0; saveEntry() }
-                ))
-
-                if let linked = entry.linkedTodo {
-                    HStack(spacing: 4) {
-                        Image(systemName: "link")
-                            .font(.caption2)
-                        Text(linked.breadcrumbPath)
-                            .font(.caption)
-                            .lineLimit(1)
-                    }
-                    .foregroundStyle(linked.inheritedDisplayColor ?? .secondary)
-                }
-
-                HStack {
-                    billableBadge(entry)
-                    Spacer()
-                    if let customer = entry.customer {
-                        Text(customer.name).font(.caption).foregroundStyle(.secondary)
-                    }
+                    .controlSize(.small)
                 }
             }
         }
     }
 
-    /// Called whenever the user edits the running entry (title, role, project, todo).
-    /// Touching it by hand is what promotes an auto-started entry to a trustworthy
-    /// classification example.
+    private func awayCard(_ notice: EntryCompletionService.AwayNotice) -> some View {
+        Card(tint: .blue) {
+            VStack(alignment: .leading, spacing: 8) {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(notice.message).font(.callout).lineLimit(3)
+                        Text("Away \(hhmm(notice.from))–\(hhmm(notice.to)). Time away from the Mac isn't tracked.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "moon.zzz.fill").foregroundStyle(.blue)
+                }
+                HStack(spacing: 6) {
+                    if completion.canKeepAwayTime {
+                        Button("Keep that time") { completion.keepAwayTime() }
+                    }
+                    Spacer()
+                    Button("OK") { completion.dismissAwayNotice() }.buttonStyle(.borderedProminent)
+                }
+                .controlSize(.small)
+            }
+        }
+    }
+
+    // MARK: - Current task
+
+    @ViewBuilder
+    private var taskCard: some View {
+        if let entry = controller.runningEntry {
+            runningCard(entry)
+        } else {
+            Card {
+                HStack(spacing: 10) {
+                    Image(systemName: "timer")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Nothing running").font(.callout.weight(.semibold))
+                        Text("Hansel starts one for a meeting or after 10 min of activity.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button { controller.startManual() } label: {
+                        Label("Start", systemImage: "play.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(";", modifiers: [.command])
+                }
+            }
+        }
+    }
+
+    private func runningCard(_ entry: TimeEntry) -> some View {
+        @Bindable var entry = entry
+        return Card(tint: entry.project?.displayColor ?? .accentColor) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .center, spacing: 8) {
+                    Circle().fill(.red).frame(width: 8, height: 8)
+                    TextField("What are you working on?", text: $entry.title)
+                        .textFieldStyle(.plain)
+                        .font(.body.weight(.semibold))
+                        .focused($titleFocused)
+                        // Only typing counts as a human edit. The title also changes when
+                        // a switch replaces the running entry, and treating that as the
+                        // user vouching for it fed the model's own guess back.
+                        .onChange(of: entry.title) { _, _ in
+                            if titleFocused { saveEntry() }
+                        }
+                }
+                HStack(spacing: 6) {
+                    Menu {
+                        Button("No project") { setProject(nil, on: entry) }
+                        ForEach(projects) { project in
+                            Button(project.customer.map { "\(project.name) — \($0.name)" } ?? project.name) {
+                                setProject(project, on: entry)
+                            }
+                        }
+                    } label: {
+                        Chip(text: entry.project?.name ?? "No project", systemImage: "folder",
+                             color: entry.project?.displayColor ?? .secondary)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    Menu {
+                        Button("No role") { entry.role = nil; entry.refreshBillableCache(); saveEntry() }
+                        ForEach(roles) { role in
+                            Button(role.name) { entry.role = role; entry.refreshBillableCache(); saveEntry() }
+                        }
+                    } label: {
+                        Chip(text: entry.role?.name ?? "Role", systemImage: "person")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    Menu {
+                        Button("No todo") { entry.linkedTodo = nil; saveEntry() }
+                        ForEach(activeTodos) { todo in
+                            Button(todo.breadcrumbPath) { entry.linkedTodo = todo; saveEntry() }
+                        }
+                    } label: {
+                        Chip(text: entry.linkedTodo?.title ?? "Todo", systemImage: "checklist",
+                             color: entry.linkedTodo?.inheritedDisplayColor ?? .secondary)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    Spacer(minLength: 0)
+                }
+                HStack(alignment: .lastTextBaseline) {
+                    TimelineView(.periodic(from: .now, by: 1)) { _ in
+                        Text(DurationFormat.clock(controller.elapsed))
+                            .font(.system(size: 26, weight: .semibold, design: .rounded).monospacedDigit())
+                    }
+                    VStack(alignment: .leading, spacing: 0) {
+                        if let customer = entry.customer {
+                            Text(customer.name).font(.caption).foregroundStyle(.secondary)
+                        }
+                        billableLabel(entry)
+                    }
+                    Spacer()
+                    Button(role: .destructive) { controller.stop() } label: {
+                        Label("Stop", systemImage: "stop.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .keyboardShortcut("s", modifiers: [.command])
+                }
+            }
+        }
+    }
+
+    private func setProject(_ project: Project?, on entry: TimeEntry) {
+        entry.project = project
+        if entry.customer == nil { entry.customer = project?.customer }
+        entry.refreshBillableCache()
+        saveEntry()
+    }
+
+    /// Called whenever the user edits the running entry. Touching it by hand promotes an
+    /// auto-started entry to a trustworthy classification example, and buys it
+    /// protection: the arbiter will not propose over a recent human decision.
     private func saveEntry() {
         controller.runningEntry?.isHumanConfirmed = true
-        // Touching an entry by hand also buys it protection: the arbiter will not
-        // propose over a recent human decision.
         controller.noteManualEdit()
         try? modelContext.save()
     }
 
-    private func billableBadge(_ entry: TimeEntry) -> some View {
-        let isBillable = BillableResolver.resolve(
-            role: entry.role,
-            project: entry.project,
-            customer: entry.customer
-        )
-        return Label(isBillable ? "Billable" : "Non-billable", systemImage: isBillable ? "dollarsign.circle.fill" : "dollarsign.circle")
-            .labelStyle(.titleAndIcon)
+    private func billableLabel(_ entry: TimeEntry) -> some View {
+        let billable = BillableResolver.resolve(role: entry.role, project: entry.project, customer: entry.customer)
+        return Label(billable ? "Billable" : "Non-billable",
+                     systemImage: billable ? "dollarsign.circle.fill" : "dollarsign.circle")
             .font(.caption)
-            .foregroundStyle(isBillable ? .green : .secondary)
+            .foregroundStyle(billable ? .green : .secondary)
     }
 
-    // MARK: - Idle
+    // MARK: - Tabs
 
-    private var idleSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: "timer").foregroundStyle(.secondary)
-                Text("No timer running").foregroundStyle(.secondary)
-                Spacer()
-                Button("Start", systemImage: "play.fill") { controller.startManual() }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(";", modifiers: [.command])
+    private var tabs: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Picker("", selection: $tab) {
+                Text("Todos").tag(Tab.todos)
+                Text(pendingProposals.isEmpty ? "Proposed" : "Proposed (\(pendingProposals.count))").tag(Tab.proposed)
+                Text("Recent").tag(Tab.recent)
             }
-            Text("Start a timer, or let Hansel start one from a meeting or 10 min of activity. It will ask before switching tasks.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-        }
-    }
-
-    // MARK: - Recent
-
-    private var recentSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Recent").font(.caption).foregroundStyle(.secondary)
-            if recentEntries.isEmpty {
-                Text("No entries yet").font(.caption).foregroundStyle(.tertiary)
-            } else {
-                ForEach(recentEntries.prefix(5)) { entry in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(entry.title.isEmpty ? "(untitled)" : entry.title)
-                                .font(.caption)
-                                .lineLimit(1)
-                            HStack(spacing: 4) {
-                                if let p = entry.project {
-                                    Text(p.name).font(.caption2).foregroundStyle(.secondary)
-                                }
-                                if let c = entry.customer {
-                                    Text("· \(c.name)").font(.caption2).foregroundStyle(.tertiary)
-                                }
-                            }
-                        }
-                        Spacer()
-                        if let d = entry.duration {
-                            Text(DurationFormat.hoursMinutes(d))
-                                .font(.caption2.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        }
-                        Button {
-                            controller.startManual(
-                                title: entry.title,
-                                role: entry.role,
-                                project: entry.project,
-                                customer: entry.customer
-                            )
-                        } label: {
-                            Image(systemName: "arrow.counterclockwise")
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(controller.isRunning)
-                    }
-                }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            switch tab {
+            case .todos: todosList
+            case .proposed: proposedList
+            case .recent: recentList
             }
         }
     }
 
-    // MARK: - Footer
-
-    private var footer: some View {
-        HStack {
-            Button("Open Window") {
-                openWindow(id: "main")
-                NSApp.activate(ignoringOtherApps: true)
-            }
-            Spacer()
-            SettingsLink {
-                Text("Settings...")
-            }
-            .keyboardShortcut(",", modifiers: [.command])
-            .simultaneousGesture(TapGesture().onEnded {
-                NSApp.activate(ignoringOtherApps: true)
-            })
-            Button("Quit") { NSApp.terminate(nil) }
-                .keyboardShortcut("q", modifiers: [.command])
-        }
-        .font(.caption)
-    }
-
-    // MARK: - Pickers
-
-    private func rolePicker(selection: Binding<Role?>) -> some View {
-        Picker("Role", selection: selection) {
-            Text("None").tag(Optional<Role>.none)
-            ForEach(roles) { role in
-                Text(role.name).tag(Optional(role))
-            }
-        }
-        .labelsHidden()
-        .pickerStyle(.menu)
-    }
-
-    private func projectPicker(selection: Binding<Project?>) -> some View {
-        Picker("Project", selection: selection) {
-            Text("No project").tag(Optional<Project>.none)
-            ForEach(projects) { project in
-                Text(project.customer != nil ? "\(project.name) — \(project.customer!.name)" : project.name)
-                    .tag(Optional(project))
-            }
-        }
-        .labelsHidden()
-        .pickerStyle(.menu)
-    }
-
-    private func todoPicker(selection: Binding<Todo?>) -> some View {
-        Picker("Todo", selection: selection) {
-            Text("No todo").tag(Optional<Todo>.none)
-            ForEach(activeTodos) { todo in
-                Text(todo.breadcrumbPath).tag(Optional(todo))
-            }
-        }
-        .labelsHidden()
-        .pickerStyle(.menu)
-    }
-
-    // MARK: - Proposals from meetings
-
-    private var proposalsRow: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "tray.and.arrow.down")
-                .foregroundStyle(Color.accentColor)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(pendingProposals.count == 1
-                     ? "1 todo proposed from a meeting"
-                     : "\(pendingProposals.count) todos proposed from meetings")
-                    .font(.callout)
-                if let latest = pendingProposals.first {
-                    Text(latest.meetingTitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            Spacer()
-            Button("Review") {
-                router.selection = .todos
-                openWindow(id: "main")
-                NSApp.activate(ignoringOtherApps: true)
-            }
-            .buttonStyle(.bordered)
-        }
-    }
-
-    // MARK: - Todos
-
-    private var todosSection: some View {
+    private var todosList: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Todos").font(.caption).foregroundStyle(.secondary)
-            HStack {
-                TextField("Quick add", text: $newTodoTitle)
-                    .textFieldStyle(.roundedBorder)
+            HStack(spacing: 6) {
+                Image(systemName: "plus.circle.fill").foregroundStyle(Color.accentColor)
+                TextField("Add a todo…", text: $newTodoTitle)
+                    .textFieldStyle(.plain)
+                    .focused($quickAddFocused)
                     .onSubmit(addTodo)
-                Button("Add", action: addTodo)
-                    .disabled(newTodoTitle.trimmingCharacters(in: .whitespaces).isEmpty)
+                if !newTodoTitle.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Button("Add", action: addTodo).controlSize(.small)
+                }
             }
+            .padding(8)
+            .background(RoundedRectangle(cornerRadius: Theme.smallRadius).fill(.background.secondary))
             if activeRootTodos.isEmpty {
-                Text("No active todos").font(.caption).foregroundStyle(.tertiary)
+                emptyRow("No open todos", systemImage: "checkmark.circle")
             } else {
-                ForEach(activeRootTodos.prefix(5)) { todo in
-                    HStack(spacing: 6) {
+                ForEach(activeRootTodos.prefix(8)) { todo in
+                    HStack(spacing: 8) {
                         Button {
                             todo.isCompleted = true
                             todo.completedAt = Date()
                             try? modelContext.save()
                         } label: {
-                            Image(systemName: "circle")
-                                .foregroundStyle(.secondary)
+                            Image(systemName: "circle").foregroundStyle(.secondary)
                         }
                         .buttonStyle(.borderless)
+                        .help("Mark done")
                         Text(todo.title.isEmpty ? "(untitled)" : todo.title)
-                            .font(.caption)
                             .lineLimit(1)
                             .foregroundStyle(todo.inheritedDisplayColor ?? .primary)
                         Spacer()
                         if !todo.subtasks.isEmpty {
                             let done = todo.subtasks.filter(\.isCompleted).count
                             Text("\(done)/\(todo.subtasks.count)")
-                                .font(.caption2.monospacedDigit())
-                                .foregroundStyle(.tertiary)
+                                .font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
                         }
+                    }
+                    .font(.callout)
+                }
+            }
+        }
+    }
+
+    private var proposedList: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if pendingProposals.isEmpty {
+                emptyRow("Nothing proposed from meetings", systemImage: "tray")
+            } else {
+                ForEach(pendingProposals.prefix(6)) { proposal in
+                    HStack(alignment: .top, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(proposal.title).font(.callout).lineLimit(2)
+                            HStack(spacing: 4) {
+                                Text(proposal.meetingTitle)
+                                if let who = proposal.saidBy { Text("· \(who)") }
+                            }
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer()
+                        Button { proposalService.decline(proposal) } label: { Image(systemName: "xmark") }
+                            .buttonStyle(.borderless).help("Decline")
+                        Button { _ = proposalService.accept(proposal) } label: { Image(systemName: "checkmark") }
+                            .buttonStyle(.borderless).help("Add to todos")
+                    }
+                }
+                Button("Review all in Todos") {
+                    router.selection = .todos
+                    openMainWindow()
+                }
+                .buttonStyle(.link)
+                .font(.caption)
+            }
+        }
+    }
+
+    private var recentList: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if recentEntries.isEmpty {
+                emptyRow("No entries yet", systemImage: "clock")
+            } else {
+                ForEach(recentEntries) { entry in
+                    HStack(spacing: 8) {
+                        RoundedRectangle(cornerRadius: 2).fill(entry.displayColor).frame(width: 3, height: 28)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(entry.title.isEmpty ? "(untitled)" : entry.title).font(.callout).lineLimit(1)
+                            Text([entry.project?.name, entry.customer?.name].compactMap { $0 }.joined(separator: " · "))
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer()
+                        if let d = entry.duration {
+                            Text(DurationFormat.hoursMinutes(d))
+                                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                        Button {
+                            controller.startManual(title: entry.title, role: entry.role,
+                                                   project: entry.project, customer: entry.customer)
+                        } label: {
+                            Image(systemName: "play.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(controller.isRunning)
+                        .help("Start again")
                     }
                 }
             }
         }
+    }
+
+    private func emptyRow(_ text: String, systemImage: String) -> some View {
+        Label(text, systemImage: systemImage)
+            .font(.callout)
+            .foregroundStyle(.tertiary)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.vertical, 12)
     }
 
     private func addTodo() {
@@ -526,5 +479,71 @@ struct MenuBarContent: View {
         modelContext.insert(Todo(title: trimmed, sortOrder: nextOrder))
         try? modelContext.save()
         newTodoTitle = ""
+        quickAddFocused = true
+    }
+
+    // MARK: - Footer
+
+    private var footer: some View {
+        HStack(spacing: 4) {
+            Button { openMainWindow() } label: {
+                Label("Open Hansel", systemImage: "macwindow")
+            }
+            .buttonStyle(.borderless)
+            Spacer()
+            SettingsLink {
+                Image(systemName: "gearshape").frame(width: 22, height: 22)
+            }
+            .buttonStyle(.borderless)
+            .help("Settings")
+            .keyboardShortcut(",", modifiers: [.command])
+            .simultaneousGesture(TapGesture().onEnded { NSApp.activate(ignoringOtherApps: true) })
+            IconButton(systemImage: "power", help: "Quit Hansel") { NSApp.terminate(nil) }
+                .keyboardShortcut("q", modifiers: [.command])
+        }
+        .font(.callout)
+    }
+
+    private func openMainWindow() {
+        openWindow(id: "main")
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func hhmm(_ date: Date) -> String {
+        date.formatted(date: .omitted, time: .shortened)
+    }
+}
+
+/// Today's numbers for the menu header and the Dashboard.
+struct TodaySummary {
+    let strip: DayStripModel
+    let colors: [String: Color]
+    let entryCount: Int
+    let billablePercent: Int
+
+    @MainActor
+    static func load(context: ModelContext, now: Date = Date()) -> TodaySummary {
+        let dayStart = Calendar.current.startOfDay(for: now)
+        let descriptor = FetchDescriptor<TimeEntry>(
+            // Running entries (no end) count as ending now. A force unwrap inside
+            // #Predicate silently matched nothing.
+            predicate: #Predicate<TimeEntry> { ($0.endAt ?? now) > dayStart },
+            sortBy: [SortDescriptor(\.startAt)]
+        )
+        let entries = (try? context.fetch(descriptor)) ?? []
+        var colors: [String: Color] = [:]
+        let items = entries.map { entry -> DayStripModel.Item in
+            let key = entry.project?.id.uuidString ?? "none"
+            colors[key] = entry.displayColor
+            return .init(id: entry.id, start: entry.startAt, end: entry.endAt, colorKey: key)
+        }
+        let strip = DayStripModel.make(items: items, day: now, now: now)
+        var billable: TimeInterval = 0
+        for entry in entries where entry.billableCached {
+            let end = min(entry.endAt ?? now, now)
+            billable += max(0, end.timeIntervalSince(max(entry.startAt, dayStart)))
+        }
+        let percent = strip.trackedSeconds > 0 ? Int((billable / strip.trackedSeconds * 100).rounded()) : 0
+        return TodaySummary(strip: strip, colors: colors, entryCount: entries.count, billablePercent: percent)
     }
 }
