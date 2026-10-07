@@ -20,8 +20,29 @@ enum MeetingTitleSync {
             AppLogger.log("meetings", level: .info, "title_from_entry meeting=\(record.id)")
             record.title = title
             record.titleIsUserSet = true
+            record.titleWrittenToNotes = false
         }
+        writePendingTitles(records)
         try? context.save()
+    }
+
+    /// Writes names the user set into Meeting Notes, so its own list shows them too.
+    /// A failure is retried on the next archive scan.
+    static func writePendingTitles(_ records: [MeetingRecord]) {
+        guard MeetingNotesTitleWriter.isEnabled else { return }
+        for record in records where record.titleIsUserSet && !record.titleWrittenToNotes {
+            do {
+                switch try MeetingNotesTitleWriter.write(title: record.title, toFolder: record.folderURL) {
+                case .written, .alreadyCurrent:
+                    record.titleWrittenToNotes = true
+                    AppLogger.log("meetings", level: .info, "title_written_to_notes meeting=\(record.id)")
+                case .skipped:
+                    break
+                }
+            } catch {
+                AppLogger.log("meetings", level: .warning, "title_write_failed meeting=\(record.id): \(error.localizedDescription)")
+            }
+        }
     }
 
     /// While linking: an entry the user named or confirmed names its meeting, unless
@@ -32,5 +53,6 @@ enum MeetingTitleSync {
               record.title != title else { return }
         record.title = title
         record.titleIsUserSet = true
+        record.titleWrittenToNotes = false
     }
 }

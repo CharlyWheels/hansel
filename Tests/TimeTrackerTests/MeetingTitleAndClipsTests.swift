@@ -112,3 +112,50 @@ final class SpeakerClipsTests: XCTestCase {
                                            segments: [seg("system", "S1", 0, 6)], lines: []).isEmpty)
     }
 }
+
+final class MeetingNotesTitleWriterTests: XCTestCase {
+
+    private func folder(with json: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appending(path: "mn-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        try Data(json.utf8).write(to: url.appending(path: "meeting.json"))
+        return url
+    }
+
+    private func json(at folder: URL) throws -> [String: Any] {
+        try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(contentsOf: folder.appending(path: "meeting.json"))) as? [String: Any])
+    }
+
+    func test_changesOnlyTheTitleAndKeepsEverythingElse() throws {
+        let url = try folder(with: """
+        {"id":"36FD4896-DFCB-46C2-AB5C-4014D4EB94FF","status":"complete","title":"Review Lulu apps",
+         "startedAt":"2026-10-07T13:28:40Z","transcriptionVersion":1,
+         "insights":{"topics":[{"title":"Keep me"}]},
+         "transcript":[{"start":4.4799999999999995,"end":5.6,"text":"a/b","speaker":"Unknown"}]}
+        """)
+        defer { try? FileManager.default.removeItem(at: url) }
+        XCTAssertEqual(try MeetingNotesTitleWriter.write(title: "Solution Engineers Meeting", toFolder: url), .written)
+
+        let object = try json(at: url)
+        XCTAssertEqual(object["title"] as? String, "Solution Engineers Meeting")
+        XCTAssertEqual(object["startedAt"] as? String, "2026-10-07T13:28:40Z")
+        XCTAssertEqual(object["transcriptionVersion"] as? Int, 1)
+        let topics = (object["insights"] as? [String: Any])?["topics"] as? [[String: Any]]
+        XCTAssertEqual(topics?.first?["title"] as? String, "Keep me", "nested titles are untouched")
+        let turn = (object["transcript"] as? [[String: Any]])?.first
+        XCTAssertEqual(turn?["start"] as? Double, 4.4799999999999995)
+        XCTAssertEqual(turn?["text"] as? String, "a/b")
+
+        // The result still decodes the way Hansel (and Meeting Notes) read it.
+        XCTAssertEqual(try MeetingNotesArchive.load(url).title, "Solution Engineers Meeting")
+        XCTAssertEqual(try MeetingNotesTitleWriter.write(title: "Solution Engineers Meeting", toFolder: url), .alreadyCurrent)
+    }
+
+    func test_neverTouchesAMeetingStillInProgress() throws {
+        let url = try folder(with: #"{"status":"recording","title":"Live"}"#)
+        defer { try? FileManager.default.removeItem(at: url) }
+        XCTAssertEqual(try MeetingNotesTitleWriter.write(title: "Other", toFolder: url), .skipped)
+        XCTAssertEqual(try json(at: url)["title"] as? String, "Live")
+    }
+}

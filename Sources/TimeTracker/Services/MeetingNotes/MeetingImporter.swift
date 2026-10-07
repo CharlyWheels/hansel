@@ -112,6 +112,7 @@ final class MeetingImporter {
         for record in removed { modelContext.delete(record) }
 
         linkEntries(records: records.filter { !removedIDs.contains($0.id) }, now: now)
+        MeetingTitleSync.writePendingTitles(records.filter { !removedIDs.contains($0.id) })
         try? modelContext.save()
 
         if !removedIDs.isEmpty { onRemoved?(removedIDs) }
@@ -129,7 +130,12 @@ final class MeetingImporter {
     }
 
     static func update(_ record: MeetingRecord, from doc: MeetingNotesDocument, entry: MeetingNotesArchive.Entry) {
-        if !record.titleIsUserSet { record.title = doc.title }
+        if !record.titleIsUserSet {
+            record.title = doc.title
+        } else if record.titleWrittenToNotes, doc.title != record.title {
+            // Renamed in Meeting Notes after Hansel wrote its name there: newest wins.
+            record.title = doc.title
+        }
         record.startedAt = doc.startedAt
         record.endedAt = doc.endedAt
         record.status = doc.status ?? "complete"

@@ -115,7 +115,8 @@ status. Microphone and camera detection need no permission at all.
 ## Meetings and proposed todos (Meeting Notes)
 
 Hansel reads the archive of [Meeting Notes](https://github.com/foeken/meeting-notes),
-the local meeting recorder, and never writes to it. It follows that app's archive folder
+the local meeting recorder. The one thing it writes back is a meeting name you corrected (see
+*Meeting names*), and that can be turned off. It follows that app's archive folder
 (`~/Documents/Meetings Notes` by default) unless you choose another one in
 **Settings → Meetings**. The archive is checked every two minutes.
 
@@ -123,7 +124,10 @@ the local meeting recorder, and never writes to it. It follows that app's archiv
   the Entries list) renames the meeting too, and a meeting whose entry you named or
   confirmed takes that name. Meeting Notes names a recording after the calendar event
   chosen when it started, which can be the wrong one of overlapping invitations; your
-  name is kept when the file is read again.
+  name is kept when the file is read again. The name is also written into that meeting's
+  `meeting.json` (the title only), so Meeting Notes lists it with your name; Meeting Notes
+  renames the folder and refreshes its notes itself the next time it starts. Speaker
+  names stay in Hansel: Meeting Notes resets speaker labels in its files when it starts.
 - **Meetings page**: every finished meeting with its summary, decisions, open questions,
   topics and the transcript. Transcript lines are labelled *Me* (microphone) or *Others*
   (system audio). Meeting Notes does not identify speakers, so on a call that separates

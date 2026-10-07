@@ -19,6 +19,8 @@ final class MeetingRecord {
     /// after the calendar event chosen when recording started, which can be the wrong
     /// one of several overlapping invitations.
     var titleIsUserSet: Bool = false
+    /// The user's name has been written into Meeting Notes' `meeting.json`.
+    var titleWrittenToNotes: Bool = false
     var startedAt: Date
     var endedAt: Date?
     var status: String
