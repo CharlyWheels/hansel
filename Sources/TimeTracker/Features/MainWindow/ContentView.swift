@@ -66,11 +66,14 @@ struct ContentView: View {
                 }
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
-        } detail: {
-            VStack(spacing: 0) {
-                PermissionBanner().padding([.horizontal, .top], 12)
-                detailView
+            // In the sidebar, not around the detail: wrapping the detail in a VStack
+            // left the pages that own a NavigationStack (Todos, Projects, Customers,
+            // Roles) rendering a blank window.
+            .safeAreaInset(edge: .bottom) {
+                PermissionBanner().padding(8)
             }
+        } detail: {
+            detailView
         }
         // "It's something else…" splits the entry and then lands here to be labelled.
         .sheet(item: Binding(
