@@ -130,3 +130,97 @@ extension TimeEntry {
         project?.displayColor ?? Color.gray.opacity(0.55)
     }
 }
+
+/// The top of every page: a large title, a line of context, and the page's actions.
+struct PageHeader<Actions: View>: View {
+    let title: String
+    var subtitle: String? = nil
+    var actions: Actions
+
+    init(_ title: String, subtitle: String? = nil, @ViewBuilder actions: () -> Actions) {
+        self.title = title
+        self.subtitle = subtitle
+        self.actions = actions()
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(title).font(.largeTitle.weight(.semibold))
+            if let subtitle {
+                Text(subtitle).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            actions
+        }
+    }
+}
+
+extension PageHeader where Actions == EmptyView {
+    init(_ title: String, subtitle: String? = nil) {
+        self.init(title, subtitle: subtitle) { EmptyView() }
+    }
+}
+
+/// "+ Add a …" field, the same on every page that creates things. Extra controls (a
+/// customer picker, a billable toggle) go in `accessory`.
+struct AddField<Accessory: View>: View {
+    let placeholder: String
+    @Binding var text: String
+    let onAdd: () -> Void
+    var accessory: Accessory
+
+    init(_ placeholder: String, text: Binding<String>, onAdd: @escaping () -> Void,
+         @ViewBuilder accessory: () -> Accessory) {
+        self.placeholder = placeholder
+        self._text = text
+        self.onAdd = onAdd
+        self.accessory = accessory()
+    }
+
+    private var canAdd: Bool { !text.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "plus.circle.fill")
+                .font(.title3)
+                .foregroundStyle(Color.accentColor)
+            TextField(placeholder, text: $text)
+                .textFieldStyle(.plain)
+                .onSubmit { if canAdd { onAdd() } }
+            accessory
+            if canAdd {
+                Button("Add", action: onAdd).buttonStyle(.borderedProminent).controlSize(.small)
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous).fill(.background.secondary))
+        .overlay(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
+            .strokeBorder(Color.primary.opacity(0.06)))
+    }
+}
+
+extension AddField where Accessory == EmptyView {
+    init(_ placeholder: String, text: Binding<String>, onAdd: @escaping () -> Void) {
+        self.init(placeholder, text: text, onAdd: onAdd) { EmptyView() }
+    }
+}
+
+struct BillableChip: View {
+    let billable: Bool
+    var body: some View {
+        Chip(text: billable ? "Billable" : "Non-billable",
+             systemImage: billable ? "dollarsign.circle.fill" : "dollarsign.circle",
+             color: billable ? .green : .secondary)
+    }
+}
+
+enum CatalogStats {
+    /// Time tracked on these entries in the last 30 days.
+    static func last30Days(_ entries: [TimeEntry], now: Date = Date()) -> TimeInterval {
+        let since = now.addingTimeInterval(-30 * 86_400)
+        return entries.reduce(0) { total, e in
+            guard let end = e.endAt, end > since else { return total }
+            return total + end.timeIntervalSince(max(e.startAt, since))
+        }
+    }
+}

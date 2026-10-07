@@ -13,8 +13,21 @@ struct EntryListView: View {
 
     @State private var editingEntry: TimeEntry?
 
+    private var weekSummary: String {
+        let week = AnalyticsAggregator.report(entries: entries, period: .thisWeek)
+        return "This week \(DurationFormat.hoursMinutes(week.totalSeconds)) · \(week.entryCount) entr\(week.entryCount == 1 ? "y" : "ies")"
+    }
+
     var body: some View {
-        VStack(alignment: .leading) {
+        VStack(alignment: .leading, spacing: 0) {
+            PageHeader("Entries", subtitle: weekSummary) {
+                Button { addEntry() } label: { Label("New entry", systemImage: "plus") }
+                Button { exportCSV() } label: { Label("Export CSV", systemImage: "square.and.arrow.up") }
+                    .disabled(entries.isEmpty)
+            }
+            .padding([.horizontal, .top], 20)
+            .padding(.bottom, 12)
+            Divider()
             if entries.isEmpty {
                 ContentUnavailableView(
                     "No entries yet",
@@ -53,23 +66,6 @@ struct EntryListView: View {
             }
         }
         .navigationTitle("Entries")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    addEntry()
-                } label: {
-                    Label("New entry", systemImage: "plus")
-                }
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    exportCSV()
-                } label: {
-                    Label("Export CSV", systemImage: "square.and.arrow.up")
-                }
-                .disabled(entries.isEmpty)
-            }
-        }
         .sheet(item: $editingEntry) { entry in
             EntryEditorView(entry: entry)
                 .frame(minWidth: 480, minHeight: 360)
@@ -139,20 +135,34 @@ struct EntryListView: View {
             .filter { $0.billableCached }
             .reduce(0) { $0 + ($1.duration ?? 0) }
         let unreviewed = group.entries.filter(\.needsReview)
-        return HStack {
-            Text(group.date.formatted(.dateTime.weekday(.wide).month().day()))
-                .font(.headline)
-            Spacer()
-            if !unreviewed.isEmpty {
-                Button("Confirm \(unreviewed.count)") { confirm(unreviewed) }
-                    .buttonStyle(.borderless)
-                    .font(.caption)
-                    .help("Mark this day's unreviewed entries as correct, so the model uses them as examples.")
+        let strip = DayStripModel.make(
+            items: group.entries.map {
+                .init(id: $0.id, start: $0.startAt, end: $0.endAt, colorKey: $0.project?.id.uuidString ?? "none")
+            },
+            day: group.date, now: Date()
+        )
+        let colors = Dictionary(group.entries.map { ($0.project?.id.uuidString ?? "none", $0.displayColor) },
+                                uniquingKeysWith: { a, _ in a })
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(group.date.formatted(.dateTime.weekday(.wide).month().day()))
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text("\(DurationFormat.hoursMinutes(total)) · \(DurationFormat.hoursMinutes(billable)) billable")
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if !unreviewed.isEmpty {
+                    Button("Confirm \(unreviewed.count)") { confirm(unreviewed) }
+                        .controlSize(.small)
+                        .help("Mark this day's unreviewed entries as correct, so the model uses them as examples.")
+                }
             }
-            Text("\(DurationFormat.hoursMinutes(total)) · \(DurationFormat.hoursMinutes(billable)) billable")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
+            DayStrip(model: strip, height: 6, showsHours: false) { colors[$0] ?? .gray }
         }
+        .padding(.top, 10)
+        .padding(.bottom, 4)
+        .textCase(nil)
     }
 
     /// Vouching for an entry makes it a classification example in every prompt.

@@ -15,7 +15,12 @@ struct ProjectsView: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 0) {
-                addRow.padding()
+                VStack(alignment: .leading, spacing: 12) {
+                    PageHeader("Projects", subtitle: "\(projects.count) project\(projects.count == 1 ? "" : "s")")
+                    addRow
+                }
+                .padding([.horizontal, .top], 20)
+                .padding(.bottom, 12)
                 SuggestedRulesSection(projects: projects)
                     .padding(.horizontal)
                     .padding(.bottom, 8)
@@ -24,6 +29,13 @@ struct ProjectsView: View {
                     ForEach(projects) { project in
                         NavigationLink(value: project) {
                             rowSummary(project)
+                        }
+                        .contextMenu {
+                            Button("Delete…", role: .destructive) {
+                                if let index = projects.firstIndex(where: { $0.id == project.id }) {
+                                    pendingDelete = IndexSet(integer: index)
+                                }
+                            }
                         }
                     }
                     .onDelete { pendingDelete = $0 }
@@ -41,60 +53,48 @@ struct ProjectsView: View {
     }
 
     private var addRow: some View {
-        HStack {
-            TextField("Project name", text: $newName)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(add)
+        AddField("Add a project", text: $newName, onAdd: add) {
             Picker("Customer", selection: $newCustomer) {
                 Text("No customer").tag(Optional<Customer>.none)
                 ForEach(customers) { c in Text(c.name).tag(Optional(c)) }
             }
-            .frame(maxWidth: 180)
-            Toggle("Billable", isOn: $newBillable)
-            Button("Add", action: add).disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
+            .labelsHidden()
+            .fixedSize()
+            Toggle("Billable", isOn: $newBillable).toggleStyle(.checkbox)
         }
     }
 
     private func rowSummary(_ project: Project) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Circle()
-                .fill(project.displayColor)
-                .frame(width: 12, height: 12)
-                .overlay(Circle().strokeBorder(Color.secondary.opacity(0.25), lineWidth: 0.5))
-            VStack(alignment: .leading, spacing: 1) {
-                Text(project.name.isEmpty ? "(unnamed)" : project.name)
+                .fill(project.displayColor.gradient)
+                .frame(width: 14, height: 14)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(project.name.isEmpty ? "(unnamed)" : project.name).font(.body.weight(.medium))
                 HStack(spacing: 6) {
                     if let customer = project.customer {
-                        Text(customer.name).font(.caption).foregroundStyle(.secondary)
-                    } else {
-                        Text("No customer").font(.caption).foregroundStyle(.tertiary)
+                        Chip(text: customer.name, systemImage: "person.2")
                     }
-                    billableBadge(project.defaultBillable)
-                    rulesBadge(count: project.rules.count)
+                    BillableChip(billable: project.defaultBillable)
+                    if !project.rules.isEmpty {
+                        Chip(text: "\(project.rules.count) rule\(project.rules.count == 1 ? "" : "s")", systemImage: "wand.and.stars")
+                    }
+                }
+                if !project.details.isEmpty {
+                    Text(project.details).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             Spacer()
+            hours(CatalogStats.last30Days(project.entries))
         }
+        .padding(.vertical, 4)
         .contentShape(Rectangle())
     }
 
-    private func billableBadge(_ on: Bool) -> some View {
-        Text(on ? "Billable" : "Non-billable")
-            .font(.caption2)
-            .padding(.horizontal, 5).padding(.vertical, 1)
-            .background((on ? Color.green : Color.secondary).opacity(0.15), in: Capsule())
-            .foregroundStyle(on ? .green : .secondary)
-    }
-
-    private func rulesBadge(count: Int) -> some View {
-        Group {
-            if count > 0 {
-                Label("\(count) rule\(count == 1 ? "" : "s")", systemImage: "text.badge.checkmark")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else {
-                EmptyView()
-            }
+    private func hours(_ seconds: TimeInterval) -> some View {
+        VStack(alignment: .trailing, spacing: 0) {
+            Text(seconds > 0 ? DurationFormat.hoursMinutes(seconds) : "—").monospacedDigit()
+            Text("last 30 days").font(.caption2).foregroundStyle(.tertiary)
         }
     }
 

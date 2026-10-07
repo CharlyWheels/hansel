@@ -138,23 +138,30 @@ struct DayTimelineView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 8) {
-            Button { shiftDay(-1) } label: { Image(systemName: "chevron.left") }
-                .buttonStyle(.borderless)
-                .keyboardShortcut(.leftArrow, modifiers: [])
-            Button { shiftDay(1) } label: { Image(systemName: "chevron.right") }
-                .buttonStyle(.borderless)
-                .keyboardShortcut(.rightArrow, modifiers: [])
-                .disabled(Calendar.current.isDateInToday(selectedDate))
-            Text(selectedDate.formatted(.dateTime.weekday(.wide).month().day()))
-                .font(.headline)
-            Spacer()
-            Button("Today") {
-                selectedDate = Calendar.current.startOfDay(for: Date())
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(selectedDate.formatted(.dateTime.weekday(.wide).month(.wide).day()))
+                    .font(.largeTitle.weight(.semibold))
+                Text(daySubtitle).foregroundStyle(.secondary)
             }
-            .disabled(Calendar.current.isDateInToday(selectedDate))
+            Spacer()
+            HStack(spacing: 4) {
+                Button { shiftDay(-1) } label: { Image(systemName: "chevron.left") }
+                    .keyboardShortcut(.leftArrow, modifiers: [])
+                    .help("Previous day")
+                Button("Today") {
+                    selectedDate = Calendar.current.startOfDay(for: Date())
+                }
+                .disabled(Calendar.current.isDateInToday(selectedDate))
+                Button { shiftDay(1) } label: { Image(systemName: "chevron.right") }
+                    .keyboardShortcut(.rightArrow, modifiers: [])
+                    .disabled(Calendar.current.isDateInToday(selectedDate))
+                    .help("Next day")
+            }
+            .controlSize(.large)
             DatePicker("", selection: $selectedDate, displayedComponents: [.date])
                 .labelsHidden()
+                .datePickerStyle(.field)
             Button {
                 loadCalendarPlaceholders()
             } label: {
@@ -163,7 +170,18 @@ struct DayTimelineView: View {
             .help("Reload calendar events")
             .buttonStyle(.borderless)
         }
-        .padding()
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+    }
+
+    /// "4 entries · 2h 8m", or a hint on an empty day.
+    private var daySubtitle: String {
+        let tracked = entries.reduce(0.0) { total, e in
+            let end = min(e.endAt ?? Date(), dayEnd)
+            return total + max(0, end.timeIntervalSince(max(e.startAt, dayStart)))
+        }
+        guard !entries.isEmpty else { return "Nothing tracked. Drag on the timeline to add an entry." }
+        return "\(entries.count) entr\(entries.count == 1 ? "y" : "ies") · \(DurationFormat.hoursMinutes(tracked)) · drag to add"
     }
 
     private func shiftDay(_ delta: Int) {

@@ -13,12 +13,24 @@ struct RolesView: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 0) {
-                addRow.padding()
+                VStack(alignment: .leading, spacing: 12) {
+                    PageHeader("Roles", subtitle: "\(roles.count) role\(roles.count == 1 ? "" : "s")")
+                    addRow
+                }
+                .padding([.horizontal, .top], 20)
+                .padding(.bottom, 12)
                 Divider()
                 List {
                     ForEach(roles) { role in
                         NavigationLink(value: role) {
                             rowSummary(role)
+                        }
+                        .contextMenu {
+                            Button("Delete…", role: .destructive) {
+                                if let index = roles.firstIndex(where: { $0.id == role.id }) {
+                                    pendingDelete = IndexSet(integer: index)
+                                }
+                            }
                         }
                     }
                     .onDelete { pendingDelete = $0 }
@@ -36,47 +48,34 @@ struct RolesView: View {
     }
 
     private var addRow: some View {
-        HStack {
-            TextField("Role name", text: $newName)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(add)
-            Toggle("Billable", isOn: $newBillable)
-            Button("Add", action: add).disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
+        AddField("Add a role", text: $newName, onAdd: add) {
+            Toggle("Billable", isOn: $newBillable).toggleStyle(.checkbox)
         }
     }
 
     private func rowSummary(_ role: Role) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(role.name.isEmpty ? "(unnamed)" : role.name)
+        HStack(spacing: 12) {
+            Image(systemName: "person.crop.circle")
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(role.name.isEmpty ? "(unnamed)" : role.name).font(.body.weight(.medium))
                 HStack(spacing: 6) {
-                    billableBadge(role.defaultBillable)
-                    rulesBadge(count: role.rules.count)
+                    BillableChip(billable: role.defaultBillable)
+                    if !role.rules.isEmpty {
+                        Chip(text: "\(role.rules.count) rule\(role.rules.count == 1 ? "" : "s")", systemImage: "wand.and.stars")
+                    }
                 }
             }
             Spacer()
-        }
-        .contentShape(Rectangle())
-    }
-
-    private func billableBadge(_ on: Bool) -> some View {
-        Text(on ? "Billable" : "Non-billable")
-            .font(.caption2)
-            .padding(.horizontal, 5).padding(.vertical, 1)
-            .background((on ? Color.green : Color.secondary).opacity(0.15), in: Capsule())
-            .foregroundStyle(on ? .green : .secondary)
-    }
-
-    private func rulesBadge(count: Int) -> some View {
-        Group {
-            if count > 0 {
-                Label("\(count) rule\(count == 1 ? "" : "s")", systemImage: "text.badge.checkmark")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else {
-                EmptyView()
+            VStack(alignment: .trailing, spacing: 0) {
+                let seconds = CatalogStats.last30Days(role.entries)
+                Text(seconds > 0 ? DurationFormat.hoursMinutes(seconds) : "—").monospacedDigit()
+                Text("last 30 days").font(.caption2).foregroundStyle(.tertiary)
             }
         }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 
     private func add() {

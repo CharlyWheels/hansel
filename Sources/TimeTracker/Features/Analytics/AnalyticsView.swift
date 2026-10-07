@@ -27,6 +27,9 @@ struct AnalyticsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                PageHeader("Analytics", subtitle: "Where your time went, by role, project or customer") {
+                    exportMenu
+                }
                 PieChartSection(title: "Today", entries: entries, period: .today)
                 PieChartSection(title: "This Week", entries: entries, period: .thisWeek)
                 PieChartSection(title: "Previous Week", entries: entries, period: .lastWeek)
@@ -38,14 +41,11 @@ struct AnalyticsView: View {
                     customHeader: AnyView(customRangePicker)
                 )
             }
-            .padding()
+            .padding(20)
+            .frame(maxWidth: 980)
+            .frame(maxWidth: .infinity)
         }
         .navigationTitle("Analytics")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                exportMenu
-            }
-        }
         .alert("Export failed", isPresented: Binding(
             get: { exportError != nil },
             set: { if !$0 { exportError = nil } }

@@ -168,7 +168,7 @@ struct PieChartSection: View {
                 angularInset: 1.5
             )
             .cornerRadius(3)
-            .foregroundStyle(legendColor(for: index))
+            .foregroundStyle(color(for: row, index: index))
         }
         .chartLegend(.hidden)
         .chartBackground { _ in
@@ -188,7 +188,7 @@ struct PieChartSection: View {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(legendColor(for: index))
+                        .fill(color(for: row, index: index))
                         .frame(width: 10, height: 10)
                     Text(row.name)
                         .lineLimit(1)
@@ -208,7 +208,16 @@ struct PieChartSection: View {
         }
     }
 
-    /// One colour per row, shared by the chart and the legend.
+    /// One colour per row, shared by the chart and the legend. Projects use their own
+    /// colour, as everywhere else in the app; roles and customers have none, so they
+    /// take the palette.
+    private func color(for row: BreakdownRow, index: Int) -> Color {
+        if groupBy == .project {
+            return entries.first { $0.project?.id == row.id }?.project?.displayColor ?? Color.gray.opacity(0.6)
+        }
+        return legendColor(for: index)
+    }
+
     private func legendColor(for index: Int) -> Color {
         let palette: [Color] = [.blue, .green, .orange, .purple, .red, .teal, .pink, .yellow, .indigo, .mint, .cyan, .brown]
         return palette[index % palette.count]
