@@ -25,8 +25,6 @@ final class MeetingDetector {
     var recentConferenceURL: () -> Bool = { false }
     var trustworthyMeetingInProgress: () -> Bool = { false }
     var cameraActive: () -> Bool = { CameraActivity.isAnyCameraRunning() }
-    /// Where Meeting Notes writes its recordings.
-    var recordingRoot: () -> URL = { MeetingNotesArchive.resolvedRoot() }
 
     private var pollTimer: Timer?
     /// Confidence must clear the entry threshold twice running before we commit.
@@ -63,7 +61,6 @@ final class MeetingDetector {
         let signals = gather()
         let (confidence, evidence) = MeetingConfidence.evaluate(signals)
         let previous = state
-        state.recording = signals.recording
         if signals.micActive && !state.isInMeeting {
             AppLogger.log(
                 "activity", level: .debug,
@@ -83,7 +80,7 @@ final class MeetingDetector {
                     let endedAt = signals.micActive ? since : min(since, audio.changedAt)
                     state = MeetingState(
                         isInMeeting: false, confidence: confidence, evidence: evidence,
-                        recording: signals.recording, endedAt: endedAt
+                        endedAt: endedAt
                     )
                     belowExitSince = nil
                     consecutiveAboveEnter = 0
@@ -110,8 +107,7 @@ final class MeetingDetector {
                     appBundleId: app,
                     appName: app.flatMap { ConferenceCatalog.app(forBundleId: $0)?.displayName },
                     confidence: confidence,
-                    evidence: evidence,
-                    recording: signals.recording
+                    evidence: evidence
                 )
                 publish(previous)
                 return
@@ -152,10 +148,6 @@ final class MeetingDetector {
         signals.micBundleIds = audio.capturingBundleIDs()
         signals.cameraActive = cameraActive()
         signals.runningConferenceApps = runningBundleIds.filter(ConferenceCatalog.isConferenceApp)
-        if signals.micActive, runningBundleIds.contains(MeetingRecordingProbe.bundleId) {
-            signals.recording = MeetingRecordingProbe.activeRecording(root: recordingRoot())
-            signals.recordingActive = signals.recording != nil
-        }
 
         // A veto app counts if it currently holds the microphone, or is frontmost.
         let vetoHoldsMic = signals.micBundleIds?.contains(where: ConferenceCatalog.isVetoApp) ?? false

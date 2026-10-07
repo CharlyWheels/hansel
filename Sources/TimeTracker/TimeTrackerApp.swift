@@ -102,8 +102,17 @@ struct TimeTrackerApp: App {
             idleMonitor: idle,
             meetingProvider: meetings
         )
+        // The same calendar rules that name the meeting corroborate the call: any event
+        // with other people or a video link, in progress and not declined.
         meeting.trustworthyMeetingInProgress = { [weak meetings] in
-            meetings?.trustworthyMeetingInProgress() ?? false
+            guard let meetings else { return false }
+            let now = Date()
+            return JoinedMeetingResolver.resolve(
+                callSince: now,
+                meetings: meetings.meetings(from: now, to: now.addingTimeInterval(600)),
+                now: now,
+                allowedCalendarIds: meetings.allowedCalendarIds
+            )?.meeting.isRealMeeting == true
         }
         let store = FocusStore(modelContext: ctx, timerController: ctrl, meetingProvider: meetings)
         let prompts = FocusPromptCenter(timerController: ctrl, store: store, modelContext: ctx)
@@ -145,7 +154,6 @@ struct TimeTrackerApp: App {
             let now = Date()
             return JoinedMeetingResolver.resolve(
                 callSince: state.since ?? now,
-                recording: state.recording,
                 meetings: meetings.meetings(from: now.addingTimeInterval(-4 * 3600), to: now.addingTimeInterval(600)),
                 now: now,
                 allowedCalendarIds: meetings.allowedCalendarIds

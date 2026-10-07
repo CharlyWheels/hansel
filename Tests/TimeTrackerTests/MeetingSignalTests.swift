@@ -157,10 +157,10 @@ final class MeetingConfidenceTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(MeetingConfidence.evaluate(signals).confidence, MeetingConfidence.enterThreshold)
     }
 
-    func test_recordingTheMeetingIsAMeeting() {
+    func test_microphoneDuringACalendarMeetingIsAMeeting() {
         var signals = MeetingSignals()
         signals.micActive = true
-        signals.recordingActive = true
+        signals.trustworthyMeetingInProgress = true
         XCTAssertGreaterThanOrEqual(MeetingConfidence.evaluate(signals).confidence, MeetingConfidence.enterThreshold)
     }
 

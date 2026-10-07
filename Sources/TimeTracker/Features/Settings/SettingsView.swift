@@ -68,7 +68,7 @@ struct TrackingSettingsView: View {
             } header: {
                 Text("Meetings")
             } footer: {
-                Text("When you are in a call — microphone with Teams, Zoom or another call app, the camera, or a Meeting Notes recording — the entry takes the name of the calendar meeting, starting when the call did, and back-to-back meetings each get their own entry. A recording's title picks the event when several overlap. Hanging up closes the entry at that moment. Both can be undone from the menu bar for 15 minutes.")
+                Text("When you are in a call during a calendar meeting — microphone on, with Teams, Zoom or another call app, or the camera — the entry takes the meeting's name from your calendar, starting when the call did, and back-to-back meetings each get their own entry. Hanging up closes the entry at that moment. Both can be undone from the menu bar for 15 minutes.")
             }
 
             Section {
