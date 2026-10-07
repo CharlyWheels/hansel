@@ -40,9 +40,13 @@ struct TodosView: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 0) {
                 addRow.padding()
-                ProposalInboxSection()
                 Divider()
                 List {
+                    // Inside the list, so it scrolls with it. Above the list it had no
+                    // height limit: with a handful of proposals it outgrew the window
+                    // and the whole window drew blank.
+                    ProposalInboxSection()
+                        .listRowSeparator(.hidden)
                     ForEach(rootTodos) { todo in
                         TodoRowRecursive(
                             todo: todo,
