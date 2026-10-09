@@ -59,6 +59,11 @@ extension AIProvider {
     static var answerTokenCeiling: Int { 4096 }
 
     /// Classify a window of activity. The original question, unchanged.
+    ///
+    /// On the main actor, like the questions below: the context holds models from the
+    /// main context, and reading one from a background thread crashed the app inside
+    /// SwiftData. Only the network call itself leaves the main actor.
+    @MainActor
     func draft(_ context: SuggestionContext) async throws -> EntryDraft {
         let (system, user) = PromptBuilder.build(context: context)
         let text = try await inspectedComplete(kind: .draft, system: system, user: user, effort: .low)
@@ -67,6 +72,7 @@ extension AIProvider {
 
     /// Adjudicate a boundary the local signals already proposed: did the task change,
     /// and if so exactly when?
+    @MainActor
     func decideBoundary(_ context: BoundaryContext) async throws -> BoundaryVerdict {
         let (system, user) = BoundaryPromptBuilder.build(context: context)
         let text = try await inspectedComplete(kind: .boundary, system: system, user: user, effort: .medium)
