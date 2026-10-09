@@ -209,18 +209,26 @@ struct MenuBarContent: View {
                 Label {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(notice.message).font(.callout).lineLimit(3)
-                        Text("Away \(hhmm(notice.from))–\(hhmm(notice.to)). Time away from the Mac isn't tracked.")
+                        Text(notice.isQuestion
+                             ? "\(hhmm(notice.from))–\(hhmm(notice.to)). It stays in the entry unless you were away."
+                             : "Away \(hhmm(notice.from))–\(hhmm(notice.to)). Time away from the Mac isn't tracked.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 } icon: {
                     Image(systemName: "moon.zzz.fill").foregroundStyle(.blue)
                 }
                 HStack(spacing: 6) {
-                    if completion.canKeepAwayTime {
-                        Button("Keep that time") { completion.keepAwayTime() }
+                    if case .question = notice.action {
+                        Button("I was away") { completion.removeAskedAwayTime() }
+                        Spacer()
+                        Button("I was here") { completion.dismissAwayNotice() }.buttonStyle(.borderedProminent)
+                    } else {
+                        if completion.canKeepAwayTime {
+                            Button("Keep that time") { completion.keepAwayTime() }
+                        }
+                        Spacer()
+                        Button("OK") { completion.dismissAwayNotice() }.buttonStyle(.borderedProminent)
                     }
-                    Spacer()
-                    Button("OK") { completion.dismissAwayNotice() }.buttonStyle(.borderedProminent)
                 }
                 .controlSize(.small)
             }
