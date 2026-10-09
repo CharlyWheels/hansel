@@ -272,7 +272,9 @@ struct MenuBarContent: View {
                             if titleFocused { saveEntry() }
                         }
                 }
-                HStack(spacing: 6) {
+                // Wraps onto a second row, and a name too long for a row truncates:
+                // the popover keeps its width, so nothing may grow past it.
+                FlowLayout(spacing: 6) {
                     Menu {
                         Button("No project") { setProject(nil, on: entry) }
                         ForEach(projects) { project in
@@ -285,7 +287,6 @@ struct MenuBarContent: View {
                              color: entry.project?.displayColor ?? .secondary)
                     }
                     .menuStyle(.borderlessButton)
-                    .fixedSize()
                     Menu {
                         Button("No role") { entry.role = nil; entry.refreshBillableCache(); saveEntry() }
                         ForEach(roles) { role in
@@ -295,7 +296,6 @@ struct MenuBarContent: View {
                         Chip(text: entry.role?.name ?? "Role", systemImage: "person")
                     }
                     .menuStyle(.borderlessButton)
-                    .fixedSize()
                     Menu {
                         Button("No todo") { entry.linkedTodo = nil; saveEntry() }
                         ForEach(activeTodos) { todo in
@@ -306,8 +306,6 @@ struct MenuBarContent: View {
                              color: entry.linkedTodo?.inheritedDisplayColor ?? .secondary)
                     }
                     .menuStyle(.borderlessButton)
-                    .fixedSize()
-                    Spacer(minLength: 0)
                 }
                 HStack(alignment: .lastTextBaseline) {
                     TimelineView(.periodic(from: .now, by: 1)) { _ in
@@ -316,7 +314,7 @@ struct MenuBarContent: View {
                     }
                     VStack(alignment: .leading, spacing: 0) {
                         if let customer = entry.customer {
-                            Text(customer.name).font(.caption).foregroundStyle(.secondary)
+                            Text(customer.name).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                         billableLabel(entry)
                     }
