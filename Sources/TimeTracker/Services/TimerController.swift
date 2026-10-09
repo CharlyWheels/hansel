@@ -165,7 +165,7 @@ final class TimerController {
         }
         let clamped = max(endDate, entry.startAt)
         entry.endAt = clamped
-        if entry.title.isEmpty { entry.title = "(untitled)" }
+        entry.fillMissingTitle()
         entry.isConfirmed = true
         // `isHumanConfirmed` is NOT set here for auto-created entries. Closing an entry
         // is not the same as a human vouching for it: an AI- or calendar-started entry
@@ -293,7 +293,7 @@ final class TimerController {
             let previousBillable = previous.billableCached
 
             previous.endAt = closeAt
-            if previous.title.isEmpty { previous.title = "(untitled)" }
+            previous.fillMissingTitle()
             previous.isConfirmed = true
             previous.refreshBillableCache()
 

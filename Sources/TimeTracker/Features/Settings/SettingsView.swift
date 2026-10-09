@@ -79,7 +79,7 @@ struct TrackingSettingsView: View {
             } header: {
                 Text("When you step away")
             } footer: {
-                Text("Time away from the Mac is not tracked. A short absence is cut out and the task carries on; a long one (or a night) closes the entry when you left. Keep the time from the notice if it was work. A call with the screen unlocked counts as present.")
+                Text("Time away from the Mac is not tracked. After locking the screen or sleep, a short absence is cut out and the task carries on; a long one (or a night) closes the entry when you left. Keep the time from the notice if it was work. With the screen unlocked, nothing is cut: Hansel asks whether you were away. A call with the screen unlocked counts as present.")
             }
 
             Section {

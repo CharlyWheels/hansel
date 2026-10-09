@@ -8,10 +8,13 @@ import Observation
 /// Triggers:
 ///   1. **Away on return** — time away from the Mac is not tracked. On the idle →
 ///      active transition, if the user was away ≥ `promptIdleMinutes` while an entry
-///      ran, the away span is removed automatically: a short absence splits the entry
-///      and the task carries on; a long one (≥ `longAwayMinutes`, e.g. overnight)
-///      closes the entry where the absence began. A notice offers "Keep that time".
-///      Only a real call with the screen unlocked throughout counts as present.
+///      ran, the away span is removed: a short absence splits the entry and the task
+///      carries on; a long one (≥ `longAwayMinutes`, e.g. overnight) closes the entry
+///      where the absence began. After a lock or sleep that happens by itself, with a
+///      notice offering "Keep that time". With the screen unlocked throughout it is
+///      only asked: reading without touching the keyboard is work, and cutting it out
+///      on its own chopped an afternoon into a dozen entries. Only a real call with the
+///      screen unlocked throughout counts as present without asking.
 ///   2. **Periodic check-in** — entry running longer than `periodicCheckMinutes` and no
 ///      prompt has been shown recently. Since the timer never stops by itself, this is
 ///      what catches one left running by mistake.
@@ -43,12 +46,18 @@ final class EntryCompletionService {
             case split(originalID: UUID, continuationID: UUID)
             case trimmedStart(entryID: UUID, originalStart: Date)
             case stopped(entryID: UUID)
+            /// Nothing done yet: the screen stayed unlocked, so the user is asked.
+            case question(entryID: UUID)
         }
         let action: Action
         let message: String
         let from: Date
         let to: Date
         let at: Date
+        var isQuestion: Bool {
+            if case .question = action { return true }
+            return false
+        }
     }
     private(set) var awayNotice: AwayNotice?
 
@@ -135,8 +144,25 @@ final class EntryCompletionService {
             // Only if nothing else has started since.
             guard !controller.isRunning, let entry = fetchEntry(entryID) else { return }
             controller.resume(entry)
+        case .question:
+            // Nothing was removed; the time is already in the entry.
+            break
         }
         AppLogger.log("timer", level: .info, "completion_away_kept")
+    }
+
+    /// "I was away" on the question: cuts the span out and the task carries on. Never
+    /// closes the entry, even after a long absence: the answer may come well after the
+    /// return, and closing where the absence began would drop the work done since.
+    func removeAskedAwayTime() {
+        guard let notice = awayNotice, case let .question(entryID) = notice.action,
+              let controller = timerController, let entry = controller.runningEntry,
+              entry.id == entryID else {
+            awayNotice = nil
+            return
+        }
+        awayNotice = nil
+        removeAway(from: notice.from, to: notice.to, of: entry, stop: false)
     }
 
     func dismissAwayNotice() {
@@ -150,6 +176,7 @@ final class EntryCompletionService {
         case let .split(_, continuationID): return controller.runningEntry?.id == continuationID
         case let .trimmedStart(entryID, _): return fetchEntry(entryID) != nil
         case .stopped: return !controller.isRunning
+        case .question: return false
         }
     }
 
@@ -215,13 +242,30 @@ final class EntryCompletionService {
         if decision == .presentOnCall {
             AppLogger.log("timer", level: .info, "completion_away_skipped reason=call")
         }
-        guard decision == .remove || decision == .stop else { return }
         let title = entry.title.isEmpty ? "(untitled)" : entry.title
+        if decision == .ask {
+            awayNotice = AwayNotice(
+                action: .question(entryID: entry.id),
+                message: "No keyboard or mouse for \(DurationFormat.hoursMinutes(awaySeconds)) during '\(title)'. Were you away?",
+                from: awayStart, to: now, at: now
+            )
+            AppLogger.log("timer", level: .info, "completion_away_asked seconds=\(Int(awaySeconds))")
+            return
+        }
+        guard decision == .remove || decision == .stop else { return }
+        removeAway(from: awayStart, to: now, of: entry, stop: decision == .stop)
+    }
+
+    /// Takes `from..<to` out of the running entry and says so in a notice that can undo it.
+    private func removeAway(from awayStart: Date, to now: Date, of entry: TimeEntry, stop: Bool) {
+        guard let controller = timerController else { return }
+        let title = entry.title.isEmpty ? "(untitled)" : entry.title
+        let awaySeconds = now.timeIntervalSince(awayStart)
         let away = DurationFormat.hoursMinutes(awaySeconds)
 
         let action: AwayNotice.Action
         let message: String
-        if decision == .stop {
+        if stop {
             let entryID = entry.id
             controller.stop(at: awayStart)
             action = .stopped(entryID: entryID)
@@ -238,7 +282,7 @@ final class EntryCompletionService {
             message = "Removed \(away) away from '\(title)'."
         }
         awayNotice = AwayNotice(action: action, message: message, from: awayStart, to: now, at: now)
-        AppLogger.log("timer", level: .info, "completion_away_removed seconds=\(Int(awaySeconds)) stopped=\(decision == .stop)")
+        AppLogger.log("timer", level: .info, "completion_away_removed seconds=\(Int(awaySeconds)) stopped=\(stop)")
     }
 
     enum AwayDecision: Equatable {
@@ -250,11 +294,14 @@ final class EntryCompletionService {
         case remove
         /// Close the entry where the absence began.
         case stop
+        /// No input but the screen stayed unlocked: maybe reading. Ask, change nothing.
+        case ask
     }
 
     /// Listening on a call without touching the keyboard is still work — but only with
     /// the screen unlocked, and with the call there both when the quiet began and on
-    /// return. A lock or sleep always means the user was away.
+    /// return. A lock or sleep always means the user was away; without one it is only
+    /// a question.
     static func awayDecision(
         awaySeconds: TimeInterval,
         sawLockOrSleep: Bool,
@@ -265,6 +312,7 @@ final class EntryCompletionService {
     ) -> AwayDecision {
         if !sawLockOrSleep && inCallWhenIdleBegan && inCallNow { return .presentOnCall }
         if awaySeconds < minAwaySeconds { return .ignore }
+        if !sawLockOrSleep { return .ask }
         return awaySeconds >= longAwaySeconds ? .stop : .remove
     }
 

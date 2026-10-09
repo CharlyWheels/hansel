@@ -27,6 +27,19 @@ final class TimerControllerTests: XCTestCase {
         XCTAssertEqual(open.map(\.title), ["B"])
     }
 
+    func test_anEntryNobodyNamedTakesItsTodosTitleWhenStopped() {
+        let ctrl = TimerController(modelContext: context)
+        let todo = Todo(title: "Understand Lulu Harmony apps")
+        context.insert(todo)
+        ctrl.startManual()
+        ctrl.runningEntry?.linkedTodo = todo
+        ctrl.stop()
+        ctrl.startManual()
+        ctrl.stop()
+
+        XCTAssertEqual(allEntries().map(\.title), ["Understand Lulu Harmony apps", "(untitled)"])
+    }
+
     func test_undoSwitchReopensThePreviousEntryAndDeletesTheNewOne() {
         let ctrl = TimerController(modelContext: context)
         let now = Date()

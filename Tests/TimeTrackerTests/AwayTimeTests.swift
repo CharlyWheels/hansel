@@ -16,9 +16,17 @@ final class AwayTimeTests: XCTestCase {
     }
 
     func test_shortAbsenceIsRemovedAndLongOneStops() {
-        XCTAssertEqual(decide(1), .ignore)
-        XCTAssertEqual(decide(15), .remove)
+        XCTAssertEqual(decide(1, locked: true), .ignore)
+        XCTAssertEqual(decide(15, locked: true), .remove)
         XCTAssertEqual(decide(13 * 60, locked: true), .stop, "overnight must never keep running")
+    }
+
+    func test_noInputWithTheScreenUnlockedIsOnlyAsked() {
+        // Reading for six minutes without touching anything split an afternoon into
+        // seven entries.
+        XCTAssertEqual(decide(1), .ignore)
+        XCTAssertEqual(decide(6), .ask)
+        XCTAssertEqual(decide(90), .ask, "not even a long one closes the entry by itself")
     }
 
     func test_lockedScreenIsAwayEvenIfTheDetectorSaysCall() {
@@ -28,7 +36,8 @@ final class AwayTimeTests: XCTestCase {
 
     func test_listeningOnACallWithTheScreenOnIsPresent() {
         XCTAssertEqual(decide(20, callStart: true, callNow: true), .presentOnCall)
-        XCTAssertEqual(decide(20, callStart: true, callNow: false), .remove, "the call must still be on")
+        XCTAssertEqual(decide(20, locked: true, callStart: true, callNow: false), .remove)
+        XCTAssertEqual(decide(20, callStart: true, callNow: false), .ask, "the call must still be on")
     }
 
     func test_keepThatTimeRestoresTheSplit() throws {
