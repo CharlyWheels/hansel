@@ -65,12 +65,13 @@ final class TimerController {
         title: String = "",
         role: Role? = nil,
         project: Project? = nil,
-        customer: Customer? = nil
+        customer: Customer? = nil,
+        todo: Todo? = nil
     ) {
         start(
             title: title, startAt: Date(),
             role: role, project: project, customer: customer,
-            source: .manual
+            source: .manual, todo: todo
         )
     }
 
