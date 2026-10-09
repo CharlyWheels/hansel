@@ -93,4 +93,12 @@ final class TimeEntry {
     func refreshBillableCache() {
         billableCached = BillableResolver.resolve(role: role, project: project, customer: customer)
     }
+
+    /// An entry nobody named takes its todo's title, so starting a timer and only
+    /// picking the todo doesn't leave an "(untitled)" entry behind.
+    func fillMissingTitle() {
+        guard title.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        let todoTitle = linkedTodo?.title.trimmingCharacters(in: .whitespaces) ?? ""
+        title = todoTitle.isEmpty ? "(untitled)" : todoTitle
+    }
 }

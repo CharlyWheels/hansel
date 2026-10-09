@@ -299,7 +299,11 @@ struct MenuBarContent: View {
                     Menu {
                         Button("No todo") { entry.linkedTodo = nil; saveEntry() }
                         ForEach(activeTodos) { todo in
-                            Button(todo.breadcrumbPath) { entry.linkedTodo = todo; saveEntry() }
+                            Button(todo.breadcrumbPath) {
+                                entry.linkedTodo = todo
+                                if entry.title.trimmingCharacters(in: .whitespaces).isEmpty { entry.title = todo.title }
+                                saveEntry()
+                            }
                         }
                     } label: {
                         Chip(text: entry.linkedTodo?.title ?? "Todo", systemImage: "checklist",
