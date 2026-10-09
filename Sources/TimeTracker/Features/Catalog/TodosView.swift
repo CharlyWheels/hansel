@@ -136,18 +136,12 @@ struct TodosView: View {
     }
 
     private func addRoot() {
-        let trimmed = newTitle.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-        let nextOrder = (rootTodos.map(\.sortOrder).max() ?? -1) + 1
-        modelContext.insert(Todo(title: trimmed, sortOrder: nextOrder))
-        try? modelContext.save()
+        guard HanselActions.addTodo(title: newTitle, context: modelContext) != nil else { return }
         newTitle = ""
     }
 
     private func toggleCompleted(_ todo: Todo) {
-        todo.isCompleted.toggle()
-        todo.completedAt = todo.isCompleted ? Date() : nil
-        try? modelContext.save()
+        HanselActions.setCompleted(todo, !todo.isCompleted, context: modelContext)
     }
 
     private func deleteRoots(offsets: IndexSet) {

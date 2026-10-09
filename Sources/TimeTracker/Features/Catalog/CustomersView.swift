@@ -83,10 +83,7 @@ struct CustomersView: View {
     }
 
     private func add() {
-        let trimmed = newName.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-        modelContext.insert(Customer(name: trimmed, defaultBillable: newBillable))
-        try? modelContext.save()
+        guard HanselActions.addCustomer(name: newName, defaultBillable: newBillable, context: modelContext) != nil else { return }
         newName = ""
         newBillable = true
     }

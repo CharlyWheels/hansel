@@ -492,11 +492,7 @@ struct MenuBarContent: View {
     }
 
     private func addTodo() {
-        let trimmed = newTodoTitle.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-        let nextOrder = (activeRootTodos.map(\.sortOrder).max() ?? -1) + 1
-        modelContext.insert(Todo(title: trimmed, sortOrder: nextOrder))
-        try? modelContext.save()
+        guard HanselActions.addTodo(title: newTodoTitle, context: modelContext) != nil else { return }
         newTodoTitle = ""
         quickAddFocused = true
     }

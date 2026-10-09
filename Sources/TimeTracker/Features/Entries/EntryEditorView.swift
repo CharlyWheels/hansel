@@ -153,26 +153,16 @@ struct EntryEditorView: View {
 
     private func save() {
         guard isValid else { return }
-        // Insert before touching relationships, so they are set between models that
-        // already share a context.
-        if isNew { modelContext.insert(entry) }
-        entry.title = title
-        entry.notes = notes.isEmpty ? nil : notes
-        entry.role = role
-        entry.project = project
-        entry.customer = customer
-        entry.linkedTodo = todo
-        entry.startAt = startAt
-        if !isRunning { entry.endAt = endAt }
-        entry.refreshBillableCache()
-        // An explicit save means a human vouched for this entry, so it becomes
-        // eligible as a classification example.
-        entry.isHumanConfirmed = true
-        // Only an edit to the running entry should hold the arbiter off it.
-        if isRunning, controller.runningEntry?.id == entry.id { controller.noteManualEdit() }
-        try? modelContext.save()
-        // A meeting shows the name its entry was corrected to.
-        MeetingTitleSync.entrySaved(entry, context: modelContext)
+        HanselActions.saveEntry(entry, insert: isNew, context: modelContext, controller: controller) { entry in
+            entry.title = title
+            entry.notes = notes.isEmpty ? nil : notes
+            entry.role = role
+            entry.project = project
+            entry.customer = customer
+            entry.linkedTodo = todo
+            entry.startAt = startAt
+            if !isRunning { entry.endAt = endAt }
+        }
         dismiss()
     }
 

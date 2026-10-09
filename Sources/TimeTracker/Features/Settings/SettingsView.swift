@@ -12,6 +12,8 @@ struct SettingsView: View {
                 .tabItem { Label("Meetings", systemImage: "waveform") }
             AISettingsView()
                 .tabItem { Label("AI", systemImage: "sparkles") }
+            IntegrationsSettingsView()
+                .tabItem { Label("Integrations", systemImage: "puzzlepiece.extension") }
             PermissionsSettingsView()
                 .tabItem { Label("Permissions", systemImage: "hand.raised") }
             DebugSettingsView()

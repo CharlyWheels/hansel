@@ -79,10 +79,7 @@ struct RolesView: View {
     }
 
     private func add() {
-        let trimmed = newName.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-        modelContext.insert(Role(name: trimmed, defaultBillable: newBillable))
-        try? modelContext.save()
+        guard HanselActions.addRole(name: newName, defaultBillable: newBillable, context: modelContext) != nil else { return }
         newName = ""
         newBillable = true
     }

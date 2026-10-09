@@ -45,10 +45,7 @@ struct RoleDetailView: View {
     }
 
     private func refreshCaches() {
-        let all = (try? modelContext.fetch(FetchDescriptor<TimeEntry>())) ?? []
-        for entry in all where entry.role?.id == role.id {
-            entry.refreshBillableCache()
-        }
-        try? modelContext.save()
+        let id = role.id
+        HanselActions.refreshBillable(context: modelContext) { $0.role?.id == id }
     }
 }

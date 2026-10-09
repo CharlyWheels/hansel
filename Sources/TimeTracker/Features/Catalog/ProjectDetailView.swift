@@ -82,10 +82,7 @@ struct ProjectDetailView: View {
     }
 
     private func refreshCaches() {
-        let all = (try? modelContext.fetch(FetchDescriptor<TimeEntry>())) ?? []
-        for entry in all where entry.project?.id == project.id {
-            entry.refreshBillableCache()
-        }
-        try? modelContext.save()
+        let id = project.id
+        HanselActions.refreshBillable(context: modelContext) { $0.project?.id == id }
     }
 }

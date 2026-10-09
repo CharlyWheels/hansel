@@ -28,7 +28,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-@main
 struct TimeTrackerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     let container: ModelContainer
@@ -52,6 +51,7 @@ struct TimeTrackerApp: App {
     @State private var summaryWriter: NamedSummaryWriter
     @State private var router = MainWindowRouter()
     @State private var meetingEnricher: MeetingTaskEnricher
+    @State private var mcpServer: MCPServer
 
     init() {
         // A second instance would open the same SQLite store, and if that failed it
@@ -241,6 +241,9 @@ struct TimeTrackerApp: App {
         }
         _meetingEnricher = State(wrappedValue: enricher)
         _proposalService = State(wrappedValue: proposals)
+        // Assistants on this Mac go through the same context and controller as the UI.
+        let mcp = MCPServer(handler: MCPHandler(tools: MCPTools(context: ctx, controller: ctrl, proposals: proposals)))
+        _mcpServer = State(wrappedValue: mcp)
         _diarization = State(wrappedValue: speakers)
         let writer = NamedSummaryWriter(modelContext: ctx)
         speakers.onLabelsChanged = { [weak writer] record in writer?.namesChanged(record) }
@@ -254,7 +257,7 @@ struct TimeTrackerApp: App {
             Self.bootServicesOnce(
                 container: c, idle: idle, audio: audio, meeting: meeting, activity: activity,
                 watchdog: watch, completion: completion, arbiter: focusArbiter, prompts: prompts,
-                meetings: meetings, calendar: calendar, importer: importer
+                meetings: meetings, calendar: calendar, importer: importer, mcp: mcp
             )
         }
     }
@@ -300,6 +303,7 @@ struct TimeTrackerApp: App {
 
         Settings {
             SettingsView()
+                .environment(mcpServer)
                 .environment(controller)
                 .environment(completionService)
                 .environment(promptCenter)
@@ -355,7 +359,8 @@ struct TimeTrackerApp: App {
         prompts: FocusPromptCenter,
         meetings: MeetingProvider,
         calendar: CalendarService,
-        importer: MeetingImporter
+        importer: MeetingImporter,
+        mcp: MCPServer
     ) {
         guard !servicesStarted else { return }
         servicesStarted = true
@@ -370,6 +375,7 @@ struct TimeTrackerApp: App {
         arbiter.start()
         prompts.start()
         importer.start()
+        mcp.applySetting()
         Task {
             await meetings.start()
             calendar.start()

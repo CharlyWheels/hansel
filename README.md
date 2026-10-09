@@ -176,6 +176,57 @@ CoreML, a few seconds per meeting; about 20 MB of models downloaded once):
 - Voiceprints never leave this Mac and are never sent to the AI provider. Settings →
   Meetings → Voices lists, merges, renames and deletes them, or turns the feature off.
 
+## Use Hansel from AI assistants (MCP)
+
+Claude Desktop, Claude Code, Codex, Cursor or any other MCP client on this Mac can read
+and edit Hansel's data: "how many billable hours this week?", "log 2 h yesterday at 10:00
+on the Acme website", "add a todo to send the deck", "stop the timer".
+
+1. Settings → **Integrations** → turn on *Allow AI assistants on this Mac*.
+2. Connect the assistant. Every client uses the same command; the tab has copy buttons
+   with the exact path:
+
+   ```sh
+   # Claude Code
+   claude mcp add --scope user hansel -- /Applications/Hansel.app/Contents/MacOS/Hansel --mcp-stdio
+   ```
+
+   ```json
+   // Claude Desktop: Settings → Developer → Edit Config, then restart Claude
+   { "mcpServers": { "hansel": {
+       "command": "/Applications/Hansel.app/Contents/MacOS/Hansel", "args": ["--mcp-stdio"] } } }
+   ```
+
+   ```toml
+   # Codex: ~/.codex/config.toml
+   [mcp_servers.hansel]
+   command = "/Applications/Hansel.app/Contents/MacOS/Hansel"
+   args = ["--mcp-stdio"]
+   ```
+
+**Tools**
+- Read: `get_today`, `get_running_entry`, `list_entries`, `get_entry`, `list_projects`,
+  `list_customers`, `list_roles`, `list_todos`, `list_meetings`, `get_meeting`,
+  `list_todo_proposals`, `get_report`.
+- Create and edit: `start_timer`, `stop_timer`, `create_entry`, `update_entry`,
+  `create_todo`, `update_todo`, `create_project`, `update_project`, `create_customer`,
+  `update_customer`, `create_role`, `update_role`, `rename_meeting`,
+  `accept_todo_proposal`, `decline_todo_proposal`.
+- Projects, customers, roles and todos can be named instead of given by id; an ambiguous
+  name is refused with the candidates. Times are ISO 8601, local time without an offset.
+- Entries that would overlap another entry, or end in the future, are refused rather
+  than reshaping the timeline. Edits go through the same code as the app's own editors.
+
+**How it works and what it can't do**
+- `Hansel --mcp-stdio` is a relay the assistant starts: it passes each message to the
+  running app over a Unix socket at `~/Library/Application Support/TimeTracker/mcp.sock`
+  that only your user can open. There is no network port.
+- Hansel must be open; otherwise the assistant gets an error saying so.
+- Nothing can be deleted through it. Off by default.
+- What an assistant reads is sent to its own AI provider, like anything else you show it.
+- ChatGPT's web and mobile apps only connect to servers on the internet, so they are not
+  supported.
+
 ## Settings worth knowing
 
 - **Calendar** — choose which calendars may start tracking, and list your own email
@@ -185,6 +236,7 @@ CoreML, a few seconds per meeting; about 20 MB of models downloaded once):
   periodic check-in, and how long an unanswered switch question waits before expiring.
 - **Meetings** — Meeting Notes archive folder, the names you go by, AI refinement of
   proposed todos, and the learned history.
+- **Integrations** — let AI assistants on this Mac use Hansel through MCP (above).
 - **AI** — provider, model, and which context fields are sent. The toggles apply to
   every prompt, including task-switch questions. The default Claude preset is
   `claude-opus-5-5` at low effort; model calls are capped per hour and per day, and the

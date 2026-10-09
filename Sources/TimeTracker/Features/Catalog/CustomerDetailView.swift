@@ -50,10 +50,7 @@ struct CustomerDetailView: View {
     }
 
     private func refreshCaches() {
-        let all = (try? modelContext.fetch(FetchDescriptor<TimeEntry>())) ?? []
-        for entry in all where entry.customer?.id == customer.id {
-            entry.refreshBillableCache()
-        }
-        try? modelContext.save()
+        let id = customer.id
+        HanselActions.refreshBillable(context: modelContext) { $0.customer?.id == id }
     }
 }
