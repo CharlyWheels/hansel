@@ -198,13 +198,7 @@ struct TodoDetailView: View {
     }
 
     private func addSubtask() {
-        let trimmed = newSubtaskTitle.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-        let nextOrder = (todo.subtasks.map(\.sortOrder).max() ?? -1) + 1
-        modelContext.insert(
-            Todo(title: trimmed, sortOrder: nextOrder, parent: todo)
-        )
-        try? modelContext.save()
+        guard HanselActions.addTodo(title: newSubtaskTitle, parent: todo, context: modelContext) != nil else { return }
         newSubtaskTitle = ""
     }
 }

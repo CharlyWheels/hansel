@@ -99,11 +99,9 @@ struct ProjectsView: View {
     }
 
     private func add() {
-        let trimmed = newName.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-        let p = Project(name: trimmed, customer: newCustomer, defaultBillable: newBillable)
-        modelContext.insert(p)
-        try? modelContext.save()
+        guard HanselActions.addProject(
+            name: newName, customer: newCustomer, defaultBillable: newBillable, context: modelContext
+        ) != nil else { return }
         newName = ""
         newBillable = true
     }
