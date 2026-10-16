@@ -83,7 +83,7 @@ final class MCPHandler {
     how they spent their time and to keep their entries, timer and todos up to date. \
     Times are ISO 8601; without an offset they are read as the Mac's local time. \
     Projects, customers, roles and todos can be given by id or by name. \
-    Nothing can be deleted through these tools; ask the user to do that in Hansel.
+    Nothing can be deleted through these tools; ask the user to do that in Hansel.     Before working on one of the user's todos, call get_task_context: it gives that todo's     dossier (what happened, decisions, people, next steps, with links to the sources), its     customer's, and the time logged. Go to Slack, email or other sources only for what it     lacks; search_context finds earlier meetings, messages, emails and pages by customer,     person, date or text.
     """
 
     // MARK: - JSON-RPC envelopes

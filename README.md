@@ -207,8 +207,8 @@ on the Acme website", "add a todo to send the deck", "stop the timer".
 **Tools**
 - Read: `get_today`, `get_running_entry`, `list_entries`, `get_entry`, `list_projects`,
   `list_customers`, `list_roles`, `list_todos`, `list_meetings`, `get_meeting`,
-  `list_todo_proposals`, `get_report`, `get_ingest_brief`, `list_context_items`,
-  `get_dossier_work`.
+  `list_todo_proposals`, `get_report`, `get_task_context`, `search_context`,
+  `get_ingest_brief`, `list_context_items`, `get_dossier_work`.
 - Create and edit: `start_timer`, `stop_timer`, `create_entry`, `update_entry`,
   `create_todo`, `update_todo`, `create_project`, `update_project`, `create_customer`,
   `update_customer`, `create_role`, `update_role`, `rename_meeting`,
@@ -296,6 +296,20 @@ customer when no todo fits. These items are what the todos' dossiers will be wri
   - You can read and edit dossiers on the todo's and the customer's pages. The next
     rewrite starts from your text.
   - Customers kept out of AI context have none.
+- **Working on a todo.** Ask any assistant connected to Hansel to "work on the Demo Clustag
+  todo". It calls `get_task_context` first, which returns:
+  - the todo, its notes and subtasks;
+  - its dossier, plus the top-level todo's for a subtask;
+  - the Summary, Status and People sections of its customer's dossier;
+  - the time logged on it: entries linked to it or its subtasks, plus entries on its
+    project that no todo claims;
+  - context newer than the dossier;
+  - the links to its sources.
+
+  The assistant goes to Slack, email and the other sources only for what is missing.
+  `search_context` finds earlier items by customer, project, todo, person, text, source
+  or date, and returns summaries with links rather than the original text. Both tools
+  leave out customers kept out of AI context.
 - **Schedule.** `scripts/context-ingest/install.sh` runs the collection every 3 hours
   through launchd, and a run missed while the Mac slept happens on wake.
   - The installer copies the scripts to `~/Library/Application Support/TimeTracker/context-ingest/`

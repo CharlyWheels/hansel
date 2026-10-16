@@ -387,3 +387,210 @@ extension MCPTools {
         }
     }
 }
+
+// MARK: - Working on a todo
+
+extension MCPTools {
+
+    func taskContextTools() -> [Tool] {
+        [
+            Tool(
+                name: "get_task_context", title: "Get task context",
+                description: """
+                Everything known about a todo, to start working on it. It returns the todo (notes, due date, \
+                subtasks), its dossier (and its top-level todo's, for a subtask), a summary of its customer's \
+                dossier, the time logged on it, the newest context not yet in the dossier, and the links to \
+                its sources. Call this first; read the original sources only for what is missing.
+                """,
+                properties: ["todo": Self.string("The todo's id or title.")],
+                required: ["todo"], readOnly: true
+            ) { [unowned self] args in try taskContext(args) },
+
+            Tool(
+                name: "search_context", title: "Search context",
+                description: """
+                Finds meetings, Slack threads, emails, Teams chats, calendar events, Confluence pages and \
+                GitHub items Hansel has collected, newest first. It returns short summaries with links, not \
+                the original text; open a link when you need the details. All filters are optional and \
+                combine.
+                """,
+                properties: [
+                    "customer": Self.string("Customer id or name."),
+                    "project": Self.string("Project id or name."),
+                    "todo": Self.string("Todo id or title (its subtasks included)."),
+                    "person": Self.string("Part of a participant's name or email address."),
+                    "text": Self.string("Words to find in the title, summary or details."),
+                    "source": Self.choice(ContextItem.Source.allCases.map(\.rawValue), "Only this source."),
+                    "from": Self.string("From this date. " + Self.dateHint),
+                    "to": Self.string("Up to this date. " + Self.dateHint),
+                    "include_details": Self.boolean("Also return each item's kept facts (default false)."),
+                    "limit": Self.integer("At most this many (default 20, max 100)."),
+                ],
+                required: [], readOnly: true
+            ) { [unowned self] args in try searchContext(args) },
+        ]
+    }
+
+    // MARK: get_task_context
+
+    private func taskContext(_ args: MCPArguments, now: Date = Date()) throws -> JSONObject {
+        let todo = try self.todo(try args.requiredString("todo"))
+        guard !todo.isExcludedFromContext else {
+            throw ToolError("This todo belongs to a customer kept out of AI context.")
+        }
+        let tree = Self.subtree(todo)
+        let ids = Set(tree.map(\.id))
+        let root = todo.root
+        let customer = todo.effectiveCustomer
+
+        // Time linked to the todo or its subtasks, plus time on its project that no todo
+        // claims: entries are often logged on the project alone.
+        let project = todo.inheritedProject
+        let entries = fetchAll(TimeEntry.self).filter { entry in
+            guard entry.supersededByID == nil else { return false }
+            if let linked = entry.linkedTodo { return ids.contains(linked.id) }
+            return project != nil && entry.project?.id == project?.id
+        }
+        func seconds(_ list: [TimeEntry]) -> TimeInterval {
+            list.reduce(0) { $0 + (($1.endAt ?? now).timeIntervalSince($1.startAt)) }
+        }
+        let weekAgo = now.addingTimeInterval(-7 * 86_400)
+
+        let items = fetchAll(ContextItem.self)
+            .filter { $0.status == .assigned && ($0.todoID.map(ids.contains) ?? false) }
+            .sorted { $0.occurredAt > $1.occurredAt }
+        let since = todo.dossierThrough ?? .distantPast
+        let notInDossier = items.filter { $0.updatedAt > since }
+
+        var result: JSONObject = [
+            "todo": [
+                "id": todo.id.uuidString,
+                "path": todo.breadcrumbPath,
+                "notes": Self.value(todo.notes),
+                "due": Self.value(todo.dueAt),
+                "completed": todo.isCompleted,
+                "project": Self.ref(todo.inheritedProject?.id, todo.inheritedProject?.name),
+                "customer": Self.ref(customer?.id, customer?.name),
+            ] as JSONObject,
+            "subtasks": tree.dropFirst().map { sub -> JSONObject in
+                ["id": sub.id.uuidString, "path": sub.breadcrumbPath, "completed": sub.isCompleted,
+                 "due": Self.value(sub.dueAt), "notes": Self.value(sub.notes)]
+            },
+            "dossier": todo.dossier.isEmpty ? NSNull() : todo.dossier,
+            "dossier_updated_at": Self.value(todo.dossierUpdatedAt),
+            "time_logged": [
+                "total_hours": Self.hours(seconds(entries)),
+                "on_the_todo_hours": Self.hours(seconds(entries.filter { $0.linkedTodo != nil })),
+                "on_its_project_only_hours": Self.hours(seconds(entries.filter { $0.linkedTodo == nil })),
+                "last_7_days_hours": Self.hours(seconds(entries.filter { $0.startAt >= weekAgo })),
+                "entries": entries.count,
+                "first_worked": Self.value(entries.map(\.startAt).min()),
+                "last_worked": Self.value(entries.map(\.startAt).max()),
+            ] as JSONObject,
+            "not_yet_in_dossier": notInDossier.prefix(20).map { item -> JSONObject in
+                ["source": item.source.rawValue, "title": item.title, "date": Self.format(item.occurredAt),
+                 "url": Self.value(item.url), "summary": item.summary, "details": item.details]
+            },
+            "sources": items.prefix(30).map { item -> JSONObject in
+                ["source": item.source.rawValue, "title": item.title, "date": Self.format(item.occurredAt),
+                 "url": Self.value(item.url), "summary": item.summary]
+            },
+        ]
+        if root.id != todo.id, !root.dossier.isEmpty {
+            result["top_level_todo"] = ["path": root.breadcrumbPath, "dossier": root.dossier] as JSONObject
+        }
+        if let customer, !customer.dossier.isEmpty {
+            result["customer_dossier_summary"] = Self.sections(["## Summary", "## Status", "## People"],
+                                                               of: customer.dossier)
+        }
+        return result
+    }
+
+    /// The named sections of a dossier, in its own order, headings included.
+    static func sections(_ wanted: [String], of markdown: String) -> String {
+        var kept: [String] = []
+        var keeping = false
+        for line in markdown.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("## ") { keeping = wanted.contains(trimmed) }
+            if keeping { kept.append(line) }
+        }
+        return kept.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: search_context
+
+    private func searchContext(_ args: MCPArguments) throws -> [JSONObject] {
+        let todos = fetchAll(Todo.self)
+        let customers = fetchAll(Customer.self)
+        let todoByID = Dictionary(uniqueKeysWithValues: todos.map { ($0.id, $0) })
+        let hidden = Set(customers.filter(\.excludedFromContext).map(\.id))
+
+        var items = fetchAll(ContextItem.self).filter { item in
+            item.status != .discarded
+                && !(item.customerID.map(hidden.contains) ?? false)
+                && !(item.todoID.flatMap { todoByID[$0] }?.isExcludedFromContext ?? false)
+        }
+        if let reference = try args.reference("customer"), !reference.isEmpty {
+            let id = try customer(reference).id
+            items = items.filter {
+                $0.customerID == id || ($0.todoID.flatMap { todoByID[$0] }?.effectiveCustomer?.id == id)
+            }
+        }
+        if let reference = try args.reference("project"), !reference.isEmpty {
+            let id = try project(reference).id
+            items = items.filter { $0.todoID.flatMap { todoByID[$0] }?.inheritedProject?.id == id }
+        }
+        if let reference = try args.reference("todo"), !reference.isEmpty {
+            let ids = Set(Self.subtree(try todo(reference)).map(\.id))
+            items = items.filter { $0.todoID.map(ids.contains) ?? false }
+        }
+        if let person = try args.string("person"), !person.isEmpty {
+            let needle = Self.fold(person)
+            items = items.filter { $0.participants.contains { Self.fold($0).contains(needle) } }
+        }
+        if let text = try args.string("text"), !text.isEmpty {
+            let words = Self.fold(text).split(separator: " ").map(String.init)
+            items = items.filter { item in
+                let haystack = Self.fold(item.title + " " + item.summary + " " + item.details)
+                return words.allSatisfy { haystack.contains($0) }
+            }
+        }
+        if let sourceName = try args.string("source"), !sourceName.isEmpty {
+            guard let source = ContextItem.Source(rawValue: sourceName) else {
+                throw ToolError("Unknown source \"\(sourceName)\".")
+            }
+            items = items.filter { $0.source == source }
+        }
+        if let from = try args.date("from") { items = items.filter { $0.occurredAt >= from } }
+        if let to = try args.date("to") {
+            // A bare date means the whole of that day.
+            let end = Calendar.current.dateComponents([.hour, .minute, .second], from: to) == DateComponents(hour: 0, minute: 0, second: 0)
+                ? to.addingTimeInterval(86_400) : to
+            items = items.filter { $0.occurredAt < end }
+        }
+        let withDetails = try args.bool("include_details") ?? false
+        let limit = max(1, min(try args.int("limit") ?? 20, 100))
+        return items.sorted { $0.occurredAt > $1.occurredAt }.prefix(limit).map { item in
+            let todo = item.todoID.flatMap { todoByID[$0] }
+            let customer = item.customerID.flatMap { id in customers.first { $0.id == id } } ?? todo?.effectiveCustomer
+            var json: JSONObject = [
+                "source": item.source.rawValue,
+                "title": item.title,
+                "date": Self.format(item.occurredAt),
+                "url": Self.value(item.url),
+                "summary": item.summary,
+                "participants": Array(item.participants.prefix(10)),
+                "todo": Self.ref(todo?.id, todo?.breadcrumbPath),
+                "customer": Self.ref(customer?.id, customer?.name),
+                "status": item.status.rawValue,
+            ]
+            if withDetails { json["details"] = item.details }
+            return json
+        }
+    }
+
+    static func fold(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+    }
+}
