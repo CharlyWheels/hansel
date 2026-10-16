@@ -315,6 +315,57 @@ final class MCPTests: XCTestCase {
         XCTAssertEqual(next.map { $0["kind"] as? String }, ["customer"], "the todo is done; its customer is next")
     }
 
+    func test_taskContextAndSearch() throws {
+        _ = try object("create_customer", ["name": "Lululemon", "aliases": "lululemon.com"])
+        _ = try object("create_customer", ["name": "Personal", "excluded_from_context": true])
+        _ = try object("create_todo", ["title": "Demo", "customer": "Lululemon", "notes": "Clustag visit"])
+        _ = try object("create_todo", ["title": "Prepare data", "parent": "Demo"])
+        _ = try object("create_todo", ["title": "Visa", "customer": "Personal"])
+        let now = Date()
+        _ = try object("create_entry", ["title": "Data", "todo": "Prepare data",
+                                        "start": iso(now.addingTimeInterval(-7200)), "end": iso(now.addingTimeInterval(-3600))])
+        _ = try object("add_context_items", ["items": [
+            ["source": "email", "external_id": "e1", "title": "Master data", "date": iso(now.addingTimeInterval(-86_400)),
+             "participants": ["Ana Ruiz <ana@lululemon.com>", "ana@lululemon.com"], "summary": "Ana sent the máster data.",
+             "details": "EPC list attached.", "todo_id": try todoID("Prepare data"), "confidence": 0.9],
+            ["source": "slack", "external_id": "s1", "title": "Visit plan", "date": iso(now.addingTimeInterval(-3600)),
+             "participants": ["ana@lululemon.com"], "summary": "Visit on the 28th.", "channel": "lulu"],
+        ]])
+        let demo = try XCTUnwrap(fetchTodo("Demo"))
+        let dossier = DossierService.sections.map { "\($0)\nNone." }.joined(separator: "\n")
+        try DossierService.saveTodo(demo, markdown: dossier, through: Date.distantPast, context: context)
+
+        let task = try object("get_task_context", ["todo": "Demo"])
+        XCTAssertEqual(task["dossier"] as? String, dossier)
+        XCTAssertEqual((task["time_logged"] as? JSONObject)?["total_hours"] as? Double, 1, "subtasks' time included")
+        XCTAssertEqual((task["subtasks"] as? [JSONObject])?.map { $0["path"] as? String }, ["Demo › Prepare data"])
+        XCTAssertEqual((task["sources"] as? [JSONObject])?.map { $0["title"] as? String }, ["Visit plan", "Master data"])
+        XCTAssertEqual((task["not_yet_in_dossier"] as? [JSONObject])?.count, 2)
+        let sub = try object("get_task_context", ["todo": "Prepare data"])
+        XCTAssertEqual((sub["top_level_todo"] as? JSONObject)?["path"] as? String, "Demo")
+        XCTAssertTrue(try call("get_task_context", ["todo": "Visa"]).isError, "personal todos are refused")
+
+        func titles(_ args: JSONObject) throws -> [String?] {
+            try XCTUnwrap(try callOK("search_context", args) as? [JSONObject]).map { $0["title"] as? String }
+        }
+        XCTAssertEqual(try titles(["customer": "Lululemon"]), ["Visit plan", "Master data"])
+        XCTAssertEqual(try titles(["text": "MASTER data"]), ["Master data"], "accents and case ignored")
+        XCTAssertEqual(try titles(["person": "ana ruiz"]), ["Master data"])
+        XCTAssertEqual(try titles(["source": "slack"]), ["Visit plan"])
+        XCTAssertEqual(try titles(["to": iso(now.addingTimeInterval(-7200))]), ["Master data"])
+        XCTAssertEqual(try titles(["todo": "Prepare data"]), ["Master data"])
+        let detailed = try XCTUnwrap(try callOK("search_context", ["text": "master", "include_details": true]) as? [JSONObject])
+        XCTAssertEqual(detailed.first?["details"] as? String, "EPC list attached.")
+    }
+
+    private func fetchTodo(_ title: String) -> Todo? {
+        ((try? context.fetch(FetchDescriptor<Todo>())) ?? []).first { $0.title == title }
+    }
+
+    private func todoID(_ title: String) throws -> String {
+        try XCTUnwrap(fetchTodo(title)).id.uuidString
+    }
+
     func test_catalogCreateUpdateAndBillableRecache() throws {
         _ = try object("create_customer", ["name": "Acme", "email_domains": "acme.com"])
         XCTAssertTrue(try call("create_customer", ["name": "acme"]).isError, "duplicate names are refused")
