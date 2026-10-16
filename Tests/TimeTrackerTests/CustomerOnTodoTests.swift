@@ -31,6 +31,26 @@ final class CustomerOnTodoTests: XCTestCase {
         XCTAssertEqual(CustomerMatcher.domains(of: acme), ["acme.com"])
     }
 
+    func test_mentionsAreWholeWordsAndShortAbbreviationsNeedCapitals() {
+        let am = Customer(name: "Alvaro Moreno")
+        am.aliases = "am, alvaromoreno.es, #alvaro-moreno"
+        let boss = Customer(name: "Hugo Boss")
+        boss.aliases = "boss"
+        let lulu = Customer(name: "Lululemon")
+        lulu.aliases = "lulu"
+        let all = [am, boss, lulu]
+
+        func names(_ text: String) -> [String] {
+            CustomerMatcher.customers(mentionedIn: text, in: all).map(\.name)
+        }
+        XCTAssertEqual(names("Sync with ÁLVARO moreno on EPCs"), ["Alvaro Moreno"], "accents and case ignored")
+        XCTAssertEqual(names("AM SC structure integration"), ["Alvaro Moreno"])
+        XCTAssertEqual(names("I am free at 10 am"), [], "short abbreviations only in capitals")
+        XCTAssertEqual(names("Ask my boss about it"), ["Hugo Boss"], "longer aliases match in any case")
+        XCTAssertEqual(names("Lulu demo"), ["Lululemon"])
+        XCTAssertEqual(names("Lulus and lululemonish"), [], "whole words only")
+    }
+
     func test_closedListRefusesAnotherSpellingOrAnAliasInUse() throws {
         let inditex = try XCTUnwrap(HanselActions.addCustomer(name: "Inditex", context: context))
         inditex.aliases = "ITX, inditex.com, #itx-rfid"

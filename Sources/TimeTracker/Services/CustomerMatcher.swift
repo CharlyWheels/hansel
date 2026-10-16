@@ -67,6 +67,50 @@ enum CustomerMatcher {
         return nil
     }
 
+    // MARK: - Mentions
+
+    /// Abbreviations this short ("AM", "ANF") are ordinary words in lowercase ("I am"),
+    /// so they only count written in capitals.
+    static let shortAbbreviationLength = 3
+
+    /// The customers whose name or name-like aliases appear in `text` as whole words.
+    /// Accents and case are ignored, except that a short abbreviation must be in
+    /// capitals. Domains, channels and contacts are matched elsewhere, by field.
+    static func customers(mentionedIn text: String, in customers: [Customer]) -> [Customer] {
+        let folded = fold(text)
+        return customers.filter { customer in
+            let names = [customer.name.lowercased()]
+                + aliases(of: customer).filter { $0.kind == .name }.map(\.value)
+            return names.contains { mentions($0, text: text, folded: folded) }
+        }
+    }
+
+    static func mentions(_ name: String, text: String, folded: String? = nil) -> Bool {
+        let name = name.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return false }
+        if name.count <= shortAbbreviationLength {
+            return containsWord(name.uppercased(), in: text)
+        }
+        return containsWord(fold(name), in: folded ?? fold(text))
+    }
+
+    private static func fold(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+    }
+
+    /// `word` in `text` with no letter or digit right before or after it.
+    private static func containsWord(_ word: String, in text: String) -> Bool {
+        var searchRange = text.startIndex..<text.endIndex
+        while let found = text.range(of: word, range: searchRange) {
+            let before = found.lowerBound > text.startIndex ? text[text.index(before: found.lowerBound)] : nil
+            let after = found.upperBound < text.endIndex ? text[found.upperBound] : nil
+            let isBoundary: (Character?) -> Bool = { $0.map { !($0.isLetter || $0.isNumber) } ?? true }
+            if isBoundary(before), isBoundary(after) { return true }
+            searchRange = found.upperBound..<text.endIndex
+        }
+        return false
+    }
+
     // MARK: - Closed list
 
     /// What a name is compared by: letters and digits only, lowercased, so "Hugo

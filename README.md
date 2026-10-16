@@ -239,7 +239,10 @@ work that is no customer's, create an internal customer such as "Internal".
 
 A customer's **aliases** are the other names it goes by, comma-separated: email domains
 (`acme.com`), abbreviations (`ITX`), Slack channels (`#acme-rollout`) and contacts
-(`jane@acme.com`). Meetings with people from its domains are attributed to it. A new
+(`jane@acme.com`). Meetings with people from its domains are attributed to it. Names
+and abbreviations count as whole words, ignoring accents and case, except that an
+abbreviation of three letters or fewer ("AM", "ANF") only counts written in capitals, so
+"I am" is not a customer. A new
 customer, or an alias, that another customer already goes by is refused ("Inditex",
 "inditex" and an existing alias "ITX" are the same customer), so the list has no
 duplicates.
