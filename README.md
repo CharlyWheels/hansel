@@ -280,6 +280,15 @@ customer when no todo fits. These items are what the todos' dossiers will be wri
   - When they disagree, or neither is sure, the item waits in the **Inbox** on the Context
     page.
   - Anything about a customer kept out of AI context is not stored.
+- **Reading it.** The Context page lists the Inbox, then each customer with its open
+  todos, then Discarded. A customer or todo shows its dossier and every item behind it;
+  **More** on an item shows its kept facts and **Move…** puts it elsewhere.
+- **Gathering context for a new todo.** **Gather context**, on a todo in Context or on its
+  todo page, asks Codex to search every source for that todo over the last 90 days,
+  however old the items are, and to write its dossier. **Gather context for N new todos**
+  in the toolbar does the same for every open todo that has nothing yet, and **Collect
+  now** runs the regular collection at once. One collection runs at a time; the page
+  shows its progress and the report when it ends.
 - **The Inbox.** Assign each item to a todo or customer, or discard it. Assigning offers to
   add the item's domains or channel to the customer's aliases. Your latest decisions are
   shown to Codex as examples on its next run.
@@ -312,9 +321,9 @@ customer when no todo fits. These items are what the todos' dossiers will be wri
   leave out customers kept out of AI context.
 - **Schedule.** `scripts/context-ingest/install.sh` runs the collection every 3 hours
   through launchd, and a run missed while the Mac slept happens on wake.
-  - The installer copies the scripts to `~/Library/Application Support/TimeTracker/context-ingest/`
-    and runs them from there, because launchd may not read `~/Documents`. Run it again
-    after changing the prompt.
+  - The scripts ship inside Hansel.app (`Contents/Resources/context-ingest/`), and the job
+    runs that copy because launchd may not read `~/Documents`. So `make install` updates
+    the scheduled collection too.
   - `INTERVAL_HOURS=6 scripts/context-ingest/install.sh` changes the interval.
   - `scripts/context-ingest/install.sh uninstall` removes it.
   - Logs are written to `~/Library/Logs/TimeTracker/context-ingest-*.log`.

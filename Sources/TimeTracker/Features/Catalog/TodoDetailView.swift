@@ -13,6 +13,7 @@ struct TodoDetailView: View {
     @State private var newSubtaskTitle: String = ""
     @State private var deleting: Todo?
     @Environment(\.dismiss) private var dismiss
+    @Environment(MainWindowRouter.self) private var router
 
     private var parentCandidates: [Todo] {
         // `todo.contains` already returns true for self and descendants, so excluding
@@ -94,6 +95,14 @@ struct TodoDetailView: View {
                 DossierSection(dossier: $todo.dossier, updatedAt: todo.dossierUpdatedAt) {
                     todo.dossierUpdatedAt = Date()
                     try? modelContext.save()
+                }
+                Section {
+                    HStack {
+                        Button("Open in Context") { router.openContext(.todo(todo.id)) }
+                            .buttonStyle(.link)
+                        Spacer()
+                        GatherButton(todo: todo)
+                    }
                 }
             }
 

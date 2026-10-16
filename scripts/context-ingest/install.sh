@@ -1,8 +1,8 @@
 #!/bin/zsh
 # Schedules the context collection with launchd: every INTERVAL_HOURS (default 3) while
 # you are logged in. A run missed while the Mac slept happens on wake.
-# launchd may not read ~/Documents (privacy protection), so the scripts are copied to
-# Hansel's support folder and run from there: run this again after changing them.
+# It runs the copy of run.sh inside the installed Hansel.app (launchd may not read
+# ~/Documents), so `make install` updates the schedule's scripts too.
 #   scripts/context-ingest/install.sh            install or update
 #   scripts/context-ingest/install.sh uninstall  remove
 set -eu
@@ -10,7 +10,7 @@ set -eu
 LABEL="com.hansel.context-ingest"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 SCRIPT_DIR=${0:A:h}
-INSTALL_DIR="$HOME/Library/Application Support/TimeTracker/context-ingest"
+RUN="/Applications/Hansel.app/Contents/Resources/context-ingest/run.sh"
 INTERVAL_HOURS=${INTERVAL_HOURS:-3}
 DOMAIN="gui/$(id -u)"
 
@@ -22,9 +22,11 @@ if [[ "${1:-}" == "uninstall" ]]; then
   exit 0
 fi
 
-mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs/TimeTracker" "$INSTALL_DIR"
-cp "$SCRIPT_DIR/run.sh" "$SCRIPT_DIR/prompt.md" "$INSTALL_DIR/"
-chmod +x "$INSTALL_DIR/run.sh"
+if [[ ! -x "$RUN" ]]; then
+  echo "Hansel.app is not installed with the collection scripts; run 'make install' first." >&2
+  exit 1
+fi
+mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs/TimeTracker"
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -34,7 +36,7 @@ cat > "$PLIST" <<EOF
   <key>ProgramArguments</key>
   <array>
     <string>/bin/zsh</string>
-    <string>$INSTALL_DIR/run.sh</string>
+    <string>$RUN</string>
   </array>
   <key>StartInterval</key><integer>$(( INTERVAL_HOURS * 3600 ))</integer>
   <key>RunAtLoad</key><false/>

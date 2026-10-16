@@ -48,6 +48,7 @@ struct TimeTrackerApp: App {
     @State private var meetingImporter: MeetingImporter
     @State private var proposalService: ProposalService
     @State private var contextService: ContextService
+    @State private var contextRunner = ContextRunner()
     @State private var diarization: DiarizationService
     @State private var summaryWriter: NamedSummaryWriter
     @State private var router = MainWindowRouter()
@@ -280,6 +281,7 @@ struct TimeTrackerApp: App {
                 .environment(meetingImporter)
                 .environment(proposalService)
                 .environment(contextService)
+                .environment(contextRunner)
                 .environment(diarization)
                 .environment(summaryWriter)
                 .environment(router)
@@ -301,6 +303,7 @@ struct TimeTrackerApp: App {
                 .environment(meetingImporter)
                 .environment(proposalService)
                 .environment(contextService)
+                .environment(contextRunner)
                 .environment(diarization)
                 .environment(summaryWriter)
                 .environment(router)
@@ -321,6 +324,7 @@ struct TimeTrackerApp: App {
                 .environment(meetingImporter)
                 .environment(proposalService)
                 .environment(contextService)
+                .environment(contextRunner)
                 .environment(diarization)
                 .environment(summaryWriter)
                 .environment(router)
