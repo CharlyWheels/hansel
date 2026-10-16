@@ -30,7 +30,7 @@ struct CustomerDetailView: View {
                 if let aliasConflict {
                     Text(aliasConflict.message).font(.caption).foregroundStyle(.red)
                 }
-                Text("Other names this customer goes by, separated by commas: email domains, abbreviations, Slack channels (#name) and contacts. Meetings, messages and emails that mention them are attributed to this customer.")
+                Text("Other names this customer goes by, separated by commas: email domains, abbreviations, Slack channels (#name) and contacts. Type acronyms in capitals (AM, ANF): they then only count written in capitals. Meetings, messages and emails that mention them are attributed to this customer.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {

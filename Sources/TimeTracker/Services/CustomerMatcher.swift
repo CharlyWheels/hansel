@@ -12,6 +12,14 @@ enum CustomerMatcher {
         var kind: Kind
         /// Lowercased, without the leading `@` of a domain or `#` of a channel.
         var value: String
+        /// A name typed all in capitals ("AM", "BOSS"): it only counts written in
+        /// capitals, since in lowercase it is often an ordinary word ("I am").
+        var isAcronym = false
+    }
+
+    /// Has letters and none of them lowercase.
+    static func isAcronym(_ text: String) -> Bool {
+        text.contains { $0.isLetter } && !text.contains { $0.isLowercase }
     }
 
     static func domain(ofEmail email: String) -> String? {
@@ -24,7 +32,8 @@ enum CustomerMatcher {
     /// `a@b.c` or `@handle` a contact, `x.y` or `@x.y` an email domain, anything else
     /// a name or abbreviation. Nil for blank input.
     static func alias(_ raw: String) -> Alias? {
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let typed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = typed.lowercased()
         guard !text.isEmpty else { return nil }
         if text.hasPrefix("#") {
             let channel = String(text.dropFirst())
@@ -38,7 +47,7 @@ enum CustomerMatcher {
         }
         if text.contains("@") { return Alias(kind: .contact, value: text) }
         if text.contains("."), !text.contains(" ") { return Alias(kind: .domain, value: text) }
-        return Alias(kind: .name, value: text)
+        return Alias(kind: .name, value: text, isAcronym: isAcronym(typed))
     }
 
     /// Every alias in a comma-separated list, duplicates dropped.
@@ -69,29 +78,22 @@ enum CustomerMatcher {
 
     // MARK: - Mentions
 
-    /// Abbreviations this short ("AM", "ANF") are ordinary words in lowercase ("I am"),
-    /// so they only count written in capitals.
-    static let shortAbbreviationLength = 3
-
     /// The customers whose name or name-like aliases appear in `text` as whole words.
-    /// Accents and case are ignored, except that a short abbreviation must be in
-    /// capitals. Domains, channels and contacts are matched elsewhere, by field.
+    /// Accents and case are ignored, except that an acronym (typed in capitals) must
+    /// be in capitals. Domains, channels and contacts are matched elsewhere, by field.
     static func customers(mentionedIn text: String, in customers: [Customer]) -> [Customer] {
         let folded = fold(text)
         return customers.filter { customer in
-            let names = [customer.name.lowercased()]
-                + aliases(of: customer).filter { $0.kind == .name }.map(\.value)
+            let names = [alias(customer.name).map { Alias(kind: .name, value: $0.value, isAcronym: $0.isAcronym) }]
+                .compactMap { $0 } + aliases(of: customer).filter { $0.kind == .name }
             return names.contains { mentions($0, text: text, folded: folded) }
         }
     }
 
-    static func mentions(_ name: String, text: String, folded: String? = nil) -> Bool {
-        let name = name.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty else { return false }
-        if name.count <= shortAbbreviationLength {
-            return containsWord(name.uppercased(), in: text)
-        }
-        return containsWord(fold(name), in: folded ?? fold(text))
+    static func mentions(_ name: Alias, text: String, folded: String? = nil) -> Bool {
+        guard !name.value.isEmpty else { return false }
+        if name.isAcronym { return containsWord(name.value.uppercased(), in: text) }
+        return containsWord(fold(name.value), in: folded ?? fold(text))
     }
 
     private static func fold(_ text: String) -> String {

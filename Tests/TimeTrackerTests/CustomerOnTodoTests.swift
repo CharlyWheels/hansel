@@ -21,7 +21,7 @@ final class CustomerOnTodoTests: XCTestCase {
         XCTAssertEqual(aliases, [
             .init(kind: .domain, value: "acme.com"),
             .init(kind: .domain, value: "acme.co.uk"),
-            .init(kind: .name, value: "itx"),
+            .init(kind: .name, value: "itx", isAcronym: true),
             .init(kind: .slackChannel, value: "acme-rollout"),
             .init(kind: .contact, value: "jane@acme.com"),
             .init(kind: .contact, value: "jane"),
@@ -31,11 +31,11 @@ final class CustomerOnTodoTests: XCTestCase {
         XCTAssertEqual(CustomerMatcher.domains(of: acme), ["acme.com"])
     }
 
-    func test_mentionsAreWholeWordsAndShortAbbreviationsNeedCapitals() {
+    func test_mentionsAreWholeWordsAndAcronymsNeedCapitals() {
         let am = Customer(name: "Alvaro Moreno")
-        am.aliases = "am, alvaromoreno.es, #alvaro-moreno"
+        am.aliases = "AM, alvaromoreno.es, #alvaro-moreno"
         let boss = Customer(name: "Hugo Boss")
-        boss.aliases = "boss"
+        boss.aliases = "BOSS"
         let lulu = Customer(name: "Lululemon")
         lulu.aliases = "lulu"
         let all = [am, boss, lulu]
@@ -45,8 +45,10 @@ final class CustomerOnTodoTests: XCTestCase {
         }
         XCTAssertEqual(names("Sync with ÁLVARO moreno on EPCs"), ["Alvaro Moreno"], "accents and case ignored")
         XCTAssertEqual(names("AM SC structure integration"), ["Alvaro Moreno"])
-        XCTAssertEqual(names("I am free at 10 am"), [], "short abbreviations only in capitals")
-        XCTAssertEqual(names("Ask my boss about it"), ["Hugo Boss"], "longer aliases match in any case")
+        XCTAssertEqual(names("I am free at 10 am"), [], "acronyms only in capitals")
+        XCTAssertEqual(names("Ask my boss about it"), [], "whatever their length")
+        XCTAssertEqual(names("BOSS store rollout"), ["Hugo Boss"])
+        XCTAssertEqual(names("hugo boss rollout"), ["Hugo Boss"], "the name itself in any case")
         XCTAssertEqual(names("Lulu demo"), ["Lululemon"])
         XCTAssertEqual(names("Lulus and lululemonish"), [], "whole words only")
     }
