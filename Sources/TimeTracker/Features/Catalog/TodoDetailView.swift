@@ -92,6 +92,14 @@ struct TodoDetailView: View {
                         .font(.callout).foregroundStyle(.secondary)
                 }
             } else {
+                DossierSection(
+                    dossier: $todo.brief, updatedAt: todo.briefUpdatedAt, title: "Brief",
+                    emptyText: "No brief yet. Ask an agent to work on this todo and it drafts one, or write it yourself: goal, deliverable, when it is done, constraints and plan.",
+                    template: TaskBrief.template, caption: briefProgress(todo)
+                ) {
+                    todo.briefUpdatedAt = Date()
+                    try? modelContext.save()
+                }
                 DossierSection(dossier: $todo.dossier, updatedAt: todo.dossierUpdatedAt) {
                     todo.dossierUpdatedAt = Date()
                     try? modelContext.save()

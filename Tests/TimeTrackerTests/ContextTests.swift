@@ -299,4 +299,32 @@ final class ContextTests: XCTestCase {
         XCTAssertEqual(report.placedAutomatically, 2)
         XCTAssertEqual(report.waiting, 1)
     }
+
+    // MARK: - Briefs
+
+    func test_briefNeedsItsSectionsAndAPlanAndCountsSteps() throws {
+        XCTAssertNotNil(TaskBrief.problem("## Goal\nx"))
+        XCTAssertNotNil(TaskBrief.problem(TaskBrief.sections.joined(separator: "\nx\n")), "a plan without steps")
+        let brief = """
+        ## Goal
+        Demo ready.
+        ## Deliverable
+        Working demo.
+        ## Done when
+        - Clustag confirms
+        ## Constraints
+        - No Lululemon data without written OK
+        ## Plan
+        - [x] Send integration guide (auto)
+        - [ ] Email Ferran and Toni (ask)
+        - [ ] Prepare mock item master (auto)
+        """
+        XCTAssertNil(TaskBrief.problem(brief))
+        let steps = TaskBrief.steps(in: brief)
+        XCTAssertEqual(steps.map(\.done), [true, false, false])
+        XCTAssertEqual(steps.map(\.needsApproval), [false, true, false])
+        try TaskBrief.save(demo, markdown: brief, context: context)
+        XCTAssertEqual(briefProgress(demo), "1 of 3 steps · 1 needs your OK")
+        XCTAssertThrowsError(try TaskBrief.save(visa, markdown: brief, context: context), "personal todos get none")
+    }
 }

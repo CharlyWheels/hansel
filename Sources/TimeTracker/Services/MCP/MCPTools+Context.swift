@@ -398,13 +398,39 @@ extension MCPTools {
                 name: "get_task_context", title: "Get task context",
                 description: """
                 Everything known about a todo, to start working on it. It returns the todo (notes, due date, \
-                subtasks), its dossier (and its top-level todo's, for a subtask), a summary of its customer's \
+                subtasks), its brief (goal, deliverable, done-when, constraints, plan) and the user's autonomy \
+                policy, its dossier (and its top-level todo's, for a subtask), a summary of its customer's \
                 dossier, the time logged on it, the newest context not yet in the dossier, and the links to \
                 its sources. Call this first; read the original sources only for what is missing.
                 """,
                 properties: ["todo": Self.string("The todo's id or title.")],
                 required: ["todo"], readOnly: true
             ) { [unowned self] args in try taskContext(args) },
+
+            Tool(
+                name: "update_task_brief", title: "Update task brief",
+                description: """
+                Saves a todo's brief: what an agent needs to do it without asking. When a todo has no brief, \
+                draft one from get_task_context, ask the user at most three questions for what you cannot \
+                infer, and save it. Tick plan steps ([x]) as they are done. Exactly these sections:
+
+                \(TaskBrief.template)
+
+                Mark each plan step (auto) when the autonomy policy lets you do it alone, (ask) when it needs \
+                the user's OK.
+                """,
+                properties: [
+                    "todo": Self.string("The todo's id or title."),
+                    "brief": Self.string("The whole brief, in Markdown."),
+                ],
+                required: ["todo", "brief"], readOnly: false
+            ) { [unowned self] args in try updateTaskBrief(args) },
+
+            Tool(
+                name: "get_autonomy_policy", title: "Get autonomy policy",
+                description: "The user's rules for agents: what to do without asking, what to ask first, and what never to do. Follow it in every task.",
+                properties: [:], required: [], readOnly: true
+            ) { _ in ["policy": AutonomyPolicy.current] },
 
             Tool(
                 name: "search_context", title: "Search context",
@@ -468,6 +494,13 @@ extension MCPTools {
                 ["id": sub.id.uuidString, "path": sub.breadcrumbPath, "completed": sub.isCompleted,
                  "due": Self.value(sub.dueAt), "notes": Self.value(sub.notes)]
             },
+            "brief": todo.brief.isEmpty ? NSNull() : todo.brief,
+            "brief_progress": [
+                "steps": TaskBrief.steps(in: todo.brief).count,
+                "done": TaskBrief.steps(in: todo.brief).filter(\.done).count,
+                "next": Self.value(TaskBrief.steps(in: todo.brief).first { !$0.done }?.text),
+            ] as JSONObject,
+            "autonomy_policy": AutonomyPolicy.current,
             "dossier": todo.dossier.isEmpty ? NSNull() : todo.dossier,
             "dossier_updated_at": Self.value(todo.dossierUpdatedAt),
             "time_logged": [
@@ -508,6 +541,18 @@ extension MCPTools {
             if keeping { kept.append(line) }
         }
         return kept.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func updateTaskBrief(_ args: MCPArguments) throws -> JSONObject {
+        let todo = try self.todo(try args.requiredString("todo"))
+        do {
+            try TaskBrief.save(todo, markdown: try args.requiredString("brief"), context: context)
+        } catch let rejection as DossierService.Rejection {
+            throw ToolError(rejection.message)
+        }
+        let steps = TaskBrief.steps(in: todo.brief)
+        return ["saved": true, "todo": todo.breadcrumbPath, "steps": steps.count,
+                "done": steps.filter(\.done).count, "need_approval": steps.filter { $0.needsApproval && !$0.done }.count]
     }
 
     // MARK: search_context

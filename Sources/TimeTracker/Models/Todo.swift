@@ -23,6 +23,12 @@ final class Todo {
     /// (see `effectiveCustomer`). A project with a customer decides it.
     var customer: Customer?
 
+    // MARK: Brief
+    /// What an agent needs to do this todo without asking: goal, deliverable, when it
+    /// is done, constraints and a plan whose steps say whether they need the user's OK.
+    var brief: String = ""
+    var briefUpdatedAt: Date? = nil
+
     // MARK: Dossier
     /// What is known about this todo, in Markdown, written by the assistant from its
     /// context items (and editable by the user). Defaults on the declarations so
