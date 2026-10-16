@@ -84,11 +84,18 @@ enum CustomerMatcher {
     static func customers(mentionedIn text: String, in customers: [Customer]) -> [Customer] {
         let folded = fold(text)
         return customers.filter { customer in
-            let names = [alias(customer.name).map { Alias(kind: .name, value: $0.value, isAcronym: $0.isAcronym) }]
+            // "Internal" or "Personal" in a text is an ordinary word, not that customer.
+            let ownName = genericNames.contains(nameKey(customer.name)) ? nil : alias(customer.name)
+            let names = [ownName.map { Alias(kind: .name, value: $0.value, isAcronym: $0.isAcronym) }]
                 .compactMap { $0 } + aliases(of: customer).filter { $0.kind == .name }
             return names.contains { mentions($0, text: text, folded: folded) }
         }
     }
+
+    /// Customer names that are ordinary words; only their aliases are looked for in text.
+    static let genericNames: Set<String> = [
+        "internal", "interno", "personal", "none", "other", "others", "misc", "general", "private", "admin",
+    ]
 
     static func mentions(_ name: Alias, text: String, folded: String? = nil) -> Bool {
         guard !name.value.isEmpty else { return false }

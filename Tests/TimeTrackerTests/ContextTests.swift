@@ -91,12 +91,22 @@ final class ContextTests: XCTestCase {
     }
 
     func test_aMentionAloneOnlySuggests() {
-        let decision = classify(title: "Lulu demo prep")
+        let decision = classify(title: "Weekly", summary: "Lulu demo prep")
         XCTAssertEqual(decision.outcome, .inbox)
         XCTAssertEqual(decision.suggestedCustomerID, lulu.id)
         XCTAssertEqual(classify(title: "I am late").suggestedCustomerID, nil, "acronyms only in capitals")
         XCTAssertEqual(classify(title: "AM integration", customer: "Alvaro Moreno", confidence: 0.6).outcome,
                        .assigned(todoID: supply.id, customerID: alvaro.id), "with the assistant agreeing it counts")
+    }
+
+    func test_aCustomerInTheTitleIsAStrongSignalAndGenericNamesAreNotMentions() throws {
+        XCTAssertEqual(classify(title: "AM SC Project update with Pablo").outcome,
+                       .assigned(todoID: supply.id, customerID: alvaro.id))
+        XCTAssertEqual(classify(title: "Weekly", summary: "Talked about Lulu").outcome, .inbox, "only in the summary")
+        let internalCustomer = try XCTUnwrap(HanselActions.addCustomer(name: "Internal", context: context))
+        XCTAssertNotNil(internalCustomer)
+        XCTAssertNil(classify(title: "Internal tooling review").suggestedCustomerID,
+                     "a customer named like an ordinary word is not found by its name")
     }
 
     func test_personalMattersAreDropped() {
@@ -174,6 +184,31 @@ final class ContextTests: XCTestCase {
 
         service.meetingsRemoved([record.id])
         XCTAssertTrue(allItems().isEmpty)
+    }
+
+    func test_aMeetingWithOnePersonalTaskIsKeptWithoutIt() throws {
+        let proposals = ProposalService(modelContext: context)
+        func meeting(_ title: String, tasks: [(String, Todo?)]) -> MeetingRecord {
+            let record = MeetingRecord(id: UUID(), title: title, startedAt: Date().addingTimeInterval(-3600),
+                                       endedAt: Date(), folderPath: "/nowhere", fileModifiedAt: Date(), summary: "Talk.")
+            context.insert(record)
+            for (index, (text, parent)) in tasks.enumerated() {
+                let proposal = TodoProposal(meetingID: record.id, sourceKey: "\(record.id)#\(index)", meetingTitle: title,
+                                            meetingStartedAt: record.startedAt, title: text, evidence: text)
+                context.insert(proposal)
+                let todo = proposals.accept(proposal)
+                if let parent { HanselActions.moveTodo(todo, under: parent, context: context) }
+            }
+            return record
+        }
+        let mixed = meeting("AM SC structure integration", tasks: [("Travel plan", visa), ("Tell Tom", nil)])
+        let personalOnly = meeting("Catch up", tasks: [("Book flights", visa)])
+
+        service.syncMeetings()
+        let items = allItems()
+        XCTAssertEqual(items.map(\.externalID), [mixed.id.uuidString], "a meeting whose every task is personal is left out")
+        XCTAssertEqual(items.first?.todoID, supply.id, "found by the acronym in its title")
+        XCTAssertNotNil(personalOnly)
     }
 
     func test_aliasCandidatesSkipTheUsersOwnPublicAndTakenDomains() throws {

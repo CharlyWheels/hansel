@@ -47,7 +47,11 @@ enum ContextClassifier {
 
     /// `todos` are the open ones; a suggestion of any other todo is not followed.
     static func classify(_ input: Input, customers: [Customer], todos: [Todo]) -> Decision {
-        let strong = strongCustomers(input, customers: customers)
+        // A single customer named in the title is what the thing is about; named only in
+        // the summary, it may be one of several things discussed.
+        let inTitle = CustomerMatcher.customers(mentionedIn: input.title, in: customers)
+        var strong = strongCustomers(input, customers: customers)
+        if inTitle.count == 1, !strong.contains(where: { $0.id == inTitle[0].id }) { strong.append(inTitle[0]) }
         let mentioned = CustomerMatcher.customers(mentionedIn: input.title + "\n" + input.summary, in: customers)
 
         let suggestedTodo = input.suggestedTodoID.flatMap { id in todos.first { $0.id == id } }
@@ -73,7 +77,7 @@ enum ContextClassifier {
         let ruleSet = strong.isEmpty ? mentioned : strong
         let ruleCustomer = ruleSet.count == 1 ? ruleSet[0] : nil
         let ruleConfidence = strong.isEmpty ? mentionConfidence : strongSignalConfidence
-        let ruleWhy = strong.isEmpty ? "mentions \(ruleCustomer?.name ?? "")" : "people or channel of \(ruleCustomer?.name ?? "")"
+        let ruleWhy = strong.isEmpty ? "mentions \(ruleCustomer?.name ?? "")" : "people, channel or title of \(ruleCustomer?.name ?? "")"
         let assistantConfidence = input.suggestedConfidence ?? 0
         let assistantSure = assistantConfidence >= assistantThreshold
 

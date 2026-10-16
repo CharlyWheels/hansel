@@ -161,7 +161,6 @@ final class ContextService {
         var changed = 0
         for record in records {
             let existing = item(source: .meeting, externalID: record.id.uuidString)
-            let version = Self.version(of: record)
             let todoIDs = accepted.filter { $0.meetingID == record.id }.compactMap(\.acceptedTodoID)
             let linkedTodo = record.linkedEntryID.flatMap { id in entries.first { $0.id == id } }?.linkedTodo
             let decision = Self.meetingDecision(
@@ -177,8 +176,14 @@ final class ContextService {
                 modelContext.insert(made)
                 return made
             }()
+            // Tasks the user filed under a personal todo stay out of the details.
+            let personal = Set(accepted.filter { proposal in
+                proposal.meetingID == record.id
+                    && (proposal.acceptedTodoID.flatMap { id in catalog.todos.first { $0.id == id } }?.isExcludedFromContext ?? false)
+            }.map(\.evidence))
+            let version = Self.version(of: record) + "|\(personal.count)"
             if item.sourceVersion != version {
-                fillMeetingContent(item, record: record)
+                fillMeetingContent(item, record: record, leaving: personal)
                 item.sourceVersion = version
                 item.updatedAt = now
                 changed += 1
@@ -208,14 +213,19 @@ final class ContextService {
         record: MeetingRecord, acceptedTodoIDs: [UUID], linkedTodo: Todo?, catalog: Catalog
     ) -> ContextClassifier.Decision {
         // The todos the user accepted from this meeting say best what it was about:
-        // the top-level todo most of them sit under.
-        let roots = acceptedTodoIDs.compactMap { id in catalog.todos.first { $0.id == id } }.map(\.root)
-        let counts = Dictionary(grouping: roots, by: \.id)
-        let fromProposals = counts.max { $0.value.count < $1.value.count }?.value.first
-        if let todo = fromProposals ?? linkedTodo?.root {
-            if todo.isExcludedFromContext {
-                return .init(outcome: .drop, reason: "Kept out of AI context.")
-            }
+        // the top-level todo most of them sit under. A meeting is left out only when
+        // everything taken from it is personal; one personal task does not hide the rest.
+        let acceptedRoots = acceptedTodoIDs.compactMap { id in catalog.todos.first { $0.id == id } }.map(\.root)
+        let entryRoot = linkedTodo?.root
+        let all = acceptedRoots + [entryRoot].compactMap { $0 }
+        if !all.isEmpty, all.allSatisfy(\.isExcludedFromContext) {
+            return .init(outcome: .drop, reason: "Kept out of AI context.")
+        }
+        let usable: (Todo) -> Bool = { !$0.isExcludedFromContext && $0.effectiveCustomer != nil }
+        let fromProposals = Dictionary(grouping: acceptedRoots.filter(usable), by: \.id)
+            .max { $0.value.count < $1.value.count }?.value.first
+        let fromEntry = entryRoot.flatMap { usable($0) ? $0 : nil }
+        if let todo = fromProposals ?? fromEntry {
             if let customer = todo.effectiveCustomer {
                 return .init(
                     outcome: .assigned(todoID: todo.id, customerID: customer.id), confidence: 0.95,
@@ -248,7 +258,7 @@ final class ContextService {
 
     /// Summary: the first lines of the (named) summary. Details: decisions, action
     /// items and open questions from the archive, when it can be read.
-    private func fillMeetingContent(_ item: ContextItem, record: MeetingRecord) {
+    private func fillMeetingContent(_ item: ContextItem, record: MeetingRecord, leaving personal: Set<String> = []) {
         item.title = record.title
         item.occurredAt = record.startedAt
         item.participants = record.participantEmails.isEmpty ? record.participantNames : record.participantEmails
@@ -263,7 +273,8 @@ final class ContextService {
             }
             if !insights.actionItems.isEmpty {
                 lines.append("Action items:")
-                lines += insights.actionItems.map { "- \($0.text)" + ($0.owner.map { " (\($0))" } ?? "") }
+                lines += insights.actionItems.filter { !personal.contains($0.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                    .map { "- \($0.text)" + ($0.owner.map { " (\($0))" } ?? "") }
             }
             if !insights.openQuestions.isEmpty {
                 lines.append("Open questions:")

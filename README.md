@@ -258,7 +258,9 @@ the facts worth keeping, and a link to the original. Each item belongs to a todo
 customer when no todo fits. These items are what the todos' dossiers will be written from.
 
 - **Meetings** become items on their own once finished. They follow the todo their
-  accepted tasks went under (or their time entry's todo), else the attendees' domains.
+  accepted tasks went under (or their time entry's todo), else the attendees' domains
+  and the title. A meeting is left out only when every task taken from it is personal,
+  and tasks filed under a personal todo are left out of its details.
 - **Everything else** is collected by Codex, the assistant that has the Slack, Outlook,
   Teams, Atlassian and GitHub connectors. `scripts/context-ingest/run.sh` runs
   `codex exec` with `scripts/context-ingest/prompt.md`:
@@ -269,8 +271,10 @@ customer when no todo fits. These items are what the todos' dossiers will be wri
   Codex only reads those sources and writes nothing but these items. Hansel makes no
   model calls for this.
 - **Where an item goes.** Hansel checks the suggestion against its own signals:
-  - Its own signals are the people's email domains, the channel and the contacts in the
-    customers' aliases. A customer's name in the text only counts as a hint.
+  - Its own signals are the people's email domains, the channel, the contacts in the
+    customers' aliases, and a single customer named in the title. A customer named only
+    in the summary counts as a hint. Customers named like ordinary words ("Internal",
+    "Personal") are only found by their aliases.
   - When both agree, or one is sure and the other has no objection, the item is assigned.
   - When they disagree, or neither is sure, the item waits in the **Inbox** on the Context
     page.
