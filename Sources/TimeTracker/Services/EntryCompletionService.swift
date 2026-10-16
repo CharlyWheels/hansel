@@ -15,7 +15,14 @@ import Observation
 ///      only asked: reading without touching the keyboard is work, and cutting it out
 ///      on its own chopped an afternoon into a dozen entries. Only a real call with the
 ///      screen unlocked throughout counts as present without asking.
-///   2. **Periodic check-in** — entry running longer than `periodicCheckMinutes` and no
+///      A locked absence that reaches `longAwayMinutes` closes the entry right then,
+///      without waiting for the return: if the app dies or the Mac restarts meanwhile,
+///      the return never comes and the entry would run all night.
+///   2. **No entry spans midnight** — at the first midnight, an entry whose user was
+///      last seen before it ends there; one being worked on is split and carries on.
+///   3. **Relaunch** — the time since the user was last seen before the app quit or
+///      crashed counts as away, so a recovered entry is not left running over it.
+///   4. **Periodic check-in** — entry running longer than `periodicCheckMinutes` and no
 ///      prompt has been shown recently. Since the timer never stops by itself, this is
 ///      what catches one left running by mistake.
 ///
@@ -46,6 +53,8 @@ final class EntryCompletionService {
             case split(originalID: UUID, continuationID: UUID)
             case trimmedStart(entryID: UUID, originalStart: Date)
             case stopped(entryID: UUID)
+            /// Closed at the last sign of the user before midnight.
+            case closedAtDayEnd(entryID: UUID, dayEnd: Date)
             /// Nothing done yet: the screen stayed unlocked, so the user is asked.
             case question(entryID: UUID)
         }
@@ -54,6 +63,7 @@ final class EntryCompletionService {
         let from: Date
         let to: Date
         let at: Date
+        var entryTitle: String = ""
         var isQuestion: Bool {
             if case .question = action { return true }
             return false
@@ -74,6 +84,9 @@ final class EntryCompletionService {
     private var idleStartedAt: Date?
     /// Whether a call was in progress when the current idle span began.
     private var inCallWhenIdleBegan = false
+    /// The entry was closed during the absence still in progress, so the notice is
+    /// brought up to date on return.
+    private var stoppedDuringAbsence = false
     /// Per-entry cooldown after a prompt is resolved. Keyed by the entry's id so a
     /// freshly started entry can prompt again without waiting for the previous entry's
     /// cooldown to expire.
@@ -103,6 +116,7 @@ final class EntryCompletionService {
         tickTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
+        reconcileLaunchGap()
         AppLogger.timer.info("EntryCompletionService started")
         AppLogger.log("timer", level: .info, "completion_started")
     }
@@ -144,6 +158,12 @@ final class EntryCompletionService {
             // Only if nothing else has started since.
             guard !controller.isRunning, let entry = fetchEntry(entryID) else { return }
             controller.resume(entry)
+        case let .closedAtDayEnd(entryID, dayEnd):
+            // Up to midnight, never into the next day nor over what came after.
+            guard let entry = fetchEntry(entryID) else { return }
+            let nextStart = controller.runningEntry.map(\.startAt) ?? .distantFuture
+            entry.endAt = max(entry.endAt ?? entry.startAt, min(dayEnd, nextStart))
+            try? modelContext.save()
         case .question:
             // Nothing was removed; the time is already in the entry.
             break
@@ -176,6 +196,7 @@ final class EntryCompletionService {
         case let .split(_, continuationID): return controller.runningEntry?.id == continuationID
         case let .trimmedStart(entryID, _): return fetchEntry(entryID) != nil
         case .stopped: return !controller.isRunning
+        case let .closedAtDayEnd(entryID, _): return fetchEntry(entryID) != nil
         case .question: return false
         }
     }
@@ -217,10 +238,80 @@ final class EntryCompletionService {
             idleStartedAt = idleMonitor?.currentIdleStart ?? Date()
             inCallWhenIdleBegan = meetingDetector?.state.isInMeeting == true
         } else {
-            evaluateReturnFromIdle()
+            if stoppedDuringAbsence { refreshStoppedNotice() } else { evaluateReturnFromIdle() }
+            stoppedDuringAbsence = false
             idleStartedAt = nil
             inCallWhenIdleBegan = false
         }
+    }
+
+    /// The notice of an entry closed while the user was still away said "away until
+    /// then"; on return it says how long the absence really was.
+    private func refreshStoppedNotice() {
+        guard let notice = awayNotice, case .stopped = notice.action else { return }
+        let now = Date()
+        awayNotice = AwayNotice(
+            action: notice.action,
+            message: stoppedMessage(entryTitle: notice.entryTitle, away: now.timeIntervalSince(notice.from)),
+            from: notice.from, to: now, at: now, entryTitle: notice.entryTitle
+        )
+    }
+
+    private func stoppedMessage(entryTitle: String, away: TimeInterval) -> String {
+        "Stopped '\(entryTitle)' when you left — you were away \(DurationFormat.hoursMinutes(away))."
+    }
+
+    /// The app was not running from when the user was last seen until this launch.
+    /// An entry recovered across a long gap ends where the user was last seen.
+    private func reconcileLaunchGap() {
+        guard let controller = timerController, controller.isRunning,
+              let entry = controller.runningEntry else { return }
+        if let gap = idleMonitor?.launchGap {
+            let awayStart = max(gap.start, entry.startAt)
+            if gap.end.timeIntervalSince(awayStart) >= TimeInterval(longAwayMinutes) * 60 {
+                AppLogger.log("timer", level: .info, "launch_gap_stopped id=\(entry.id)")
+                removeAway(from: awayStart, to: gap.end, of: entry, stop: true)
+                return
+            }
+        }
+        enforceDayBoundary()
+    }
+
+    /// The user was last seen now, or where the idle span in progress began.
+    private func enforceDayBoundary() {
+        guard let controller = timerController, controller.isRunning,
+              let entry = controller.runningEntry else { return }
+        let now = Date()
+        let lastPresence = idleMonitor?.isIdle == true ? (idleMonitor?.currentIdleStart ?? now) : now
+        let title = entry.title.isEmpty ? "(untitled)" : entry.title
+        guard case let .closed(entryID, dayEnd) = controller.enforceDayBoundary(lastPresence: lastPresence, now: now)
+        else { return }
+        let ended = min(max(lastPresence, entry.startAt), dayEnd)
+        awayNotice = AwayNotice(
+            action: .closedAtDayEnd(entryID: entryID, dayEnd: dayEnd),
+            message: "Closed '\(title)' at the end of the day — entries don't run past midnight.",
+            from: ended, to: now, at: now, entryTitle: title
+        )
+        if idleMonitor?.isIdle == true { stoppedDuringAbsence = true }
+    }
+
+    /// A locked absence long enough to close the entry closes it now, not on return.
+    private func stopIfLongAway(_ entry: TimeEntry) {
+        guard let idleStart = idleStartedAt ?? idleMonitor?.currentIdleStart else { return }
+        let now = Date()
+        let awayStart = max(idleStart, entry.startAt)
+        let decision = Self.awayDecision(
+            awaySeconds: now.timeIntervalSince(awayStart),
+            sawLockOrSleep: idleMonitor?.currentIdleSawLockOrSleep ?? false,
+            inCallWhenIdleBegan: inCallWhenIdleBegan,
+            inCallNow: meetingDetector?.state.isInMeeting == true,
+            minAwaySeconds: TimeInterval(promptIdleMinutes) * 60,
+            longAwaySeconds: TimeInterval(longAwayMinutes) * 60
+        )
+        guard decision == .stop else { return }
+        AppLogger.log("timer", level: .info, "completion_away_stopped_while_away id=\(entry.id)")
+        removeAway(from: awayStart, to: now, of: entry, stop: true)
+        stoppedDuringAbsence = true
     }
 
     private func evaluateReturnFromIdle() {
@@ -269,7 +360,7 @@ final class EntryCompletionService {
             let entryID = entry.id
             controller.stop(at: awayStart)
             action = .stopped(entryID: entryID)
-            message = "Stopped '\(title)' when you left — you were away \(away)."
+            message = stoppedMessage(entryTitle: title, away: awaySeconds)
         } else {
             switch controller.excludeAwayTime(from: awayStart, to: now) {
             case let .split(originalID, continuationID)?:
@@ -281,7 +372,7 @@ final class EntryCompletionService {
             }
             message = "Removed \(away) away from '\(title)'."
         }
-        awayNotice = AwayNotice(action: action, message: message, from: awayStart, to: now, at: now)
+        awayNotice = AwayNotice(action: action, message: message, from: awayStart, to: now, at: now, entryTitle: title)
         AppLogger.log("timer", level: .info, "completion_away_removed seconds=\(Int(awaySeconds)) stopped=\(stop)")
     }
 
@@ -319,9 +410,13 @@ final class EntryCompletionService {
     // MARK: - Tick (drift + periodic)
 
     private func tick() {
+        enforceDayBoundary()
         guard let controller = timerController, controller.isRunning,
               let entry = controller.runningEntry else { return }
-        if idleMonitor?.isIdle == true { return }
+        if idleMonitor?.isIdle == true {
+            stopIfLongAway(entry)
+            return
+        }
         guard pendingPrompt == nil else { return }
         guard isCooldownPassed(for: entry) else { return }
 

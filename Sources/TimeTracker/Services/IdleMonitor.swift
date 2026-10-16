@@ -47,15 +47,28 @@ final class IdleMonitor {
     var currentIdleStart: Date? { openInterval?.start }
     private var listeners: [(Bool) -> Void] = []
     private var observerTokens: [(NotificationCenter, NSObjectProtocol)] = []
+    private let heartbeat: Heartbeat
+    /// From when the user was last seen before this launch until the launch: time the
+    /// app was not watching. Nil when there is nothing to go on.
+    private(set) var launchGap: DateInterval?
 
-    init(modelContext: ModelContext, thresholdSeconds: TimeInterval = 5 * 60) {
+    init(modelContext: ModelContext, thresholdSeconds: TimeInterval = 5 * 60, heartbeat: Heartbeat? = nil) {
         self.modelContext = modelContext
         self.defaultThresholdSeconds = thresholdSeconds
+        self.heartbeat = heartbeat ?? Heartbeat()
     }
 
     func start() {
         stop()
-        closeOrphanedIntervals()
+        // Read before the first tick writes a new beat.
+        let lastAlive = heartbeat.lastAliveAt
+        let orphanStart = closeOrphanedIntervals(lastAlive: lastAlive)
+        launchGap = Self.launchGap(
+            orphanStart: orphanStart, lastAlive: lastAlive, lastSample: latestSampleAt(), now: Date()
+        )
+        if let launchGap {
+            AppLogger.log("idle", level: .info, "launch_gap seconds=\(Int(launchGap.duration))")
+        }
         // Initial lock state
         isScreenLocked = Self.queryScreenLocked()
         subscribeNotifications()
@@ -77,20 +90,42 @@ final class IdleMonitor {
     }
 
     /// An interval left open by a crash or a quit while idle would otherwise read as
-    /// "idle until now" to every consumer for as long as it is retained. Close it at
-    /// its own start: we have no evidence of how long it really lasted.
-    private func closeOrphanedIntervals() {
+    /// "idle until now" to every consumer for as long as it is retained. Close it when
+    /// the app was last known to be alive: the user was idle at least until then.
+    /// Closing it at its own start threw away hours of known absence. Returns the
+    /// earliest orphan's start: when the user was last seen.
+    private func closeOrphanedIntervals(lastAlive: Date?) -> Date? {
         let descriptor = FetchDescriptor<IdleInterval>(
             predicate: #Predicate<IdleInterval> { $0.end == nil }
         )
-        guard let open = try? modelContext.fetch(descriptor), !open.isEmpty else { return }
-        for interval in open { interval.end = interval.start }
+        guard let open = try? modelContext.fetch(descriptor), !open.isEmpty else { return nil }
+        for interval in open { interval.end = Self.orphanEnd(start: interval.start, lastAlive: lastAlive) }
         try? modelContext.save()
         AppLogger.log("idle", level: .info, "closed_orphaned count=\(open.count)")
+        return open.map(\.start).min()
+    }
+
+    static func orphanEnd(start: Date, lastAlive: Date?) -> Date {
+        max(start, lastAlive ?? start)
+    }
+
+    /// When the user was last seen: the start of an idle span the app never saw end,
+    /// else the last heartbeat, else the last activity sample (installs that predate
+    /// the heartbeat).
+    static func launchGap(orphanStart: Date?, lastAlive: Date?, lastSample: Date?, now: Date) -> DateInterval? {
+        guard let lastSeen = orphanStart ?? lastAlive ?? lastSample, lastSeen < now else { return nil }
+        return DateInterval(start: lastSeen, end: now)
+    }
+
+    private func latestSampleAt() -> Date? {
+        var descriptor = FetchDescriptor<ActivitySample>(sortBy: [SortDescriptor(\.timestamp, order: .reverse)])
+        descriptor.fetchLimit = 1
+        return (try? modelContext.fetch(descriptor))?.first?.timestamp
     }
 
     /// Ends the open interval when the app quits, so it is not left dangling.
     private func closeOpenIntervalOnQuit() {
+        heartbeat.beat(force: true)
         guard let interval = openInterval else { return }
         interval.end = Date()
         openInterval = nil
@@ -104,6 +139,7 @@ final class IdleMonitor {
     // MARK: - Tick
 
     private func tick() {
+        heartbeat.beat()
         let sinceInput = Self.secondsSinceLastInput()
         let hidIdle = sinceInput >= thresholdSeconds
         let effective = hidIdle || isScreenLocked || isAsleep

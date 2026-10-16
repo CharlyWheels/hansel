@@ -129,4 +129,57 @@ final class TimerControllerTests: XCTestCase {
         XCTAssertEqual(seen.count, 2)
         XCTAssertNil(seen.last!)
     }
+
+    // MARK: - Day boundary
+
+    private func at(_ day: Int, _ hour: Int, _ minute: Int = 0) -> Date {
+        Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: day, hour: hour, minute: minute))!
+    }
+
+    func test_anEntryLeftBeforeMidnightEndsWhereTheUserWasLastSeen() {
+        // Yesterday: "Teams chat with Tom Vieweger" ran from 16:31 until 10:58 the next day.
+        let ctrl = TimerController(modelContext: context)
+        ctrl.startFromAI(title: "Teams chat", startAt: at(14, 16, 31))
+        let id = ctrl.runningEntry!.id
+
+        let outcome = ctrl.enforceDayBoundary(lastPresence: at(14, 16, 36), now: at(15, 10, 43))
+
+        XCTAssertEqual(outcome, .closed(entryID: id, dayEnd: at(15, 0)))
+        XCTAssertFalse(ctrl.isRunning)
+        XCTAssertEqual(allEntries().map(\.endAt), [at(14, 16, 36)])
+    }
+
+    func test_workPastMidnightIsSplitAtEachMidnightAndCarriesOn() {
+        let ctrl = TimerController(modelContext: context)
+        ctrl.startManual(title: "Release")
+        ctrl.runningEntry!.startAt = at(13, 22)
+
+        let outcome = ctrl.enforceDayBoundary(lastPresence: at(15, 1), now: at(15, 1))
+
+        XCTAssertEqual(outcome, .split(count: 2))
+        let entries = allEntries()
+        XCTAssertEqual(entries.map(\.startAt), [at(13, 22), at(14, 0), at(15, 0)])
+        XCTAssertEqual(entries.map(\.endAt), [at(14, 0), at(15, 0), nil])
+        XCTAssertEqual(Set(entries.map(\.title)), ["Release"])
+        XCTAssertEqual(ctrl.runningEntry?.id, entries.last?.id)
+    }
+
+    func test_anEntryWithinOneDayIsLeftAlone() {
+        let ctrl = TimerController(modelContext: context)
+        ctrl.startFromAI(title: "Today", startAt: at(15, 9))
+        XCTAssertEqual(ctrl.enforceDayBoundary(lastPresence: at(15, 9, 30), now: at(15, 23, 59)), .none)
+        XCTAssertTrue(ctrl.isRunning)
+    }
+
+    func test_anOverlongEntryIsPutUpForReviewEvenWhenStartedByHand() {
+        let ctrl = TimerController(modelContext: context)
+        ctrl.startManual(title: "Long")
+        ctrl.runningEntry!.startAt = Date().addingTimeInterval(-11 * 3600)
+        let long = ctrl.stop()!
+        ctrl.startManual(title: "Short")
+        let short = ctrl.stop()!
+
+        XCTAssertTrue(long.needsReview)
+        XCTAssertFalse(short.needsReview)
+    }
 }

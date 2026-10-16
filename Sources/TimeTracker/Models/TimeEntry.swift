@@ -85,6 +85,18 @@ final class TimeEntry {
     /// A closed entry no human has vouched for. Drives the review UI.
     var needsReview: Bool { endAt != nil && !isHumanConfirmed }
 
+    /// Nobody works on one thing this long: such an entry was almost certainly left
+    /// running, so it is put up for review however it was started.
+    static let overlongSeconds: TimeInterval = 10 * 3600
+
+    var isOverlong: Bool { (duration ?? 0) > Self.overlongSeconds }
+
+    /// Called as an entry is closed by the timer, not on a human edit: saving an
+    /// edited entry is the human vouching for its length.
+    func flagIfOverlong() {
+        if isOverlong { isHumanConfirmed = false }
+    }
+
     var duration: TimeInterval? {
         guard let endAt else { return nil }
         return endAt.timeIntervalSince(startAt)

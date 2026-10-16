@@ -21,6 +21,12 @@ struct EntryRowView: View {
                             .foregroundStyle(.orange)
                             .help("Not reviewed. Mark it as correct so the model learns from it.")
                     }
+                    if entry.needsReview && entry.isOverlong {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .help("Over 10 hours. It was probably left running: check when it really ended.")
+                    }
                 }
                 HStack(spacing: 6) {
                     if let project = entry.project {

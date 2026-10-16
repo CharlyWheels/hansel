@@ -203,15 +203,24 @@ struct MenuBarContent: View {
         }
     }
 
+    private func awayDetail(_ notice: EntryCompletionService.AwayNotice) -> String {
+        switch notice.action {
+        case .question:
+            return "\(hhmm(notice.from))–\(hhmm(notice.to)). It stays in the entry unless you were away."
+        case .closedAtDayEnd:
+            return "Ended at \(hhmm(notice.from)), when you were last seen."
+        default:
+            return "Away \(hhmm(notice.from))–\(hhmm(notice.to)). Time away from the Mac isn't tracked."
+        }
+    }
+
     private func awayCard(_ notice: EntryCompletionService.AwayNotice) -> some View {
         Card(tint: .blue) {
             VStack(alignment: .leading, spacing: 8) {
                 Label {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(notice.message).font(.callout).lineLimit(3)
-                        Text(notice.isQuestion
-                             ? "\(hhmm(notice.from))–\(hhmm(notice.to)). It stays in the entry unless you were away."
-                             : "Away \(hhmm(notice.from))–\(hhmm(notice.to)). Time away from the Mac isn't tracked.")
+                        Text(awayDetail(notice))
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 } icon: {

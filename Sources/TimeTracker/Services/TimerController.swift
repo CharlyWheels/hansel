@@ -173,6 +173,7 @@ final class TimerController {
         // (the user pressed Start and typed the title) or an explicit edit counts.
         // Without this distinction the classification prompt is fed its own output.
         if entry.source == .manual { entry.isHumanConfirmed = true }
+        entry.flagIfOverlong()
         entry.refreshBillableCache()
         do {
             try modelContext.save()
@@ -292,9 +293,11 @@ final class TimerController {
             let previousTitle = previous.title
             let previousBillable = previous.billableCached
 
+            let previousHumanConfirmed = previous.isHumanConfirmed
             previous.endAt = closeAt
             previous.fillMissingTitle()
             previous.isConfirmed = true
+            previous.flagIfOverlong()
             previous.refreshBillableCache()
 
             let next = TimeEntry(
@@ -321,6 +324,7 @@ final class TimerController {
                 modelContext.delete(next)
                 previous.endAt = previousEnd
                 previous.isConfirmed = previousConfirmed
+                previous.isHumanConfirmed = previousHumanConfirmed
                 previous.title = previousTitle
                 previous.billableCached = previousBillable
                 previous.supersededByID = nil
@@ -398,9 +402,18 @@ final class TimerController {
             AppLogger.log("timer", level: .info, "away_trimmed_start id=\(entry.id)")
             return .trimmedStart(entryID: entry.id, originalStart: originalStart)
         }
+        let continuationID = continueRunningEntry(closingAt: gapStart, resumingAt: gapEnd)
+        AppLogger.log("timer", level: .info, "away_excluded from=\(entry.id) to=\(continuationID) gap=\(Int(gapEnd.timeIntervalSince(gapStart)))s")
+        return .split(originalID: entry.id, continuationID: continuationID)
+    }
+
+    /// Closes the running entry at `closeAt` and opens a continuation with the same
+    /// labels at `resumeAt`. Returns the continuation's id.
+    private func continueRunningEntry(closingAt closeAt: Date, resumingAt resumeAt: Date) -> UUID {
+        let entry = runningEntry!
         let continuation = TimeEntry(
             title: entry.title,
-            startAt: gapEnd,
+            startAt: resumeAt,
             endAt: nil,
             role: entry.role,
             project: entry.project,
@@ -413,14 +426,48 @@ final class TimerController {
             linkedTodo: entry.linkedTodo
         )
         continuation.previousEntryID = entry.id
-        stop(at: gapStart)
+        stop(at: closeAt)
         entry.supersededByID = continuation.id
         modelContext.insert(continuation)
         try? modelContext.save()
         runningEntry = continuation
         state = .running
-        AppLogger.log("timer", level: .info, "away_excluded from=\(entry.id) to=\(continuation.id) gap=\(Int(gapEnd.timeIntervalSince(gapStart)))s")
-        return .split(originalID: entry.id, continuationID: continuation.id)
+        return continuation.id
+    }
+
+    enum DayBoundaryOutcome: Equatable {
+        case none
+        /// The user was last seen before midnight: the entry ended there.
+        case closed(entryID: UUID, dayEnd: Date)
+        /// Work carried on past midnight: the entry was split at each midnight.
+        case split(count: Int)
+    }
+
+    /// No entry spans midnight. If the user was last seen (`lastPresence`) before the
+    /// first midnight after the running entry began, the entry ends at that moment;
+    /// otherwise it is split at midnight and the task carries on in a new entry, as
+    /// many times as there are midnights to cross.
+    @discardableResult
+    func enforceDayBoundary(
+        lastPresence: Date,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> DayBoundaryOutcome {
+        var splits = 0
+        while isRunning, let entry = runningEntry,
+              let midnight = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: entry.startAt)),
+              midnight <= now {
+            if lastPresence <= midnight {
+                let id = entry.id
+                stop(at: lastPresence)
+                AppLogger.log("timer", level: .info, "day_boundary_closed id=\(id)")
+                return .closed(entryID: id, dayEnd: midnight)
+            }
+            let next = continueRunningEntry(closingAt: midnight, resumingAt: midnight)
+            AppLogger.log("timer", level: .info, "day_boundary_split from=\(entry.id) to=\(next)")
+            splits += 1
+        }
+        return splits > 0 ? .split(count: splits) : .none
     }
 
     /// When the most recently closed entry ended.

@@ -71,4 +71,38 @@ final class AwayTimeTests: XCTestCase {
         XCTAssertTrue(call.isRealMeeting)
         XCTAssertTrue(video.isRealMeeting)
     }
+
+    // MARK: - Relaunch
+
+    func test_theLaunchGapStartsWhereTheUserWasLastSeen() {
+        let now = Date()
+        let left = now.addingTimeInterval(-18 * 3600)
+        let lastAlive = now.addingTimeInterval(-13 * 3600)
+        let sample = now.addingTimeInterval(-20 * 3600)
+
+        XCTAssertEqual(IdleMonitor.launchGap(orphanStart: left, lastAlive: lastAlive, lastSample: sample, now: now)?.start, left,
+                       "an idle span the app never saw end is when the user left")
+        XCTAssertEqual(IdleMonitor.launchGap(orphanStart: nil, lastAlive: lastAlive, lastSample: sample, now: now)?.start, lastAlive)
+        XCTAssertEqual(IdleMonitor.launchGap(orphanStart: nil, lastAlive: nil, lastSample: sample, now: now)?.start, sample,
+                       "installs from before the heartbeat fall back to the last sample")
+        XCTAssertNil(IdleMonitor.launchGap(orphanStart: nil, lastAlive: nil, lastSample: nil, now: now))
+    }
+
+    func test_anOrphanedIdleSpanEndsWhenTheAppWasLastAlive() {
+        let start = Date()
+        XCTAssertEqual(IdleMonitor.orphanEnd(start: start, lastAlive: start.addingTimeInterval(5 * 3600)),
+                       start.addingTimeInterval(5 * 3600), "not at its own start: that erased the absence")
+        XCTAssertEqual(IdleMonitor.orphanEnd(start: start, lastAlive: nil), start)
+    }
+
+    func test_heartbeatIsThrottledAndPersists() {
+        let defaults = UserDefaults(suiteName: "heartbeat-\(UUID().uuidString)")!
+        let beat = Heartbeat(defaults: defaults, interval: 30)
+        let t0 = Date()
+        beat.beat(now: t0)
+        beat.beat(now: t0.addingTimeInterval(10))
+        XCTAssertEqual(Heartbeat(defaults: defaults).lastAliveAt, t0)
+        beat.beat(now: t0.addingTimeInterval(31))
+        XCTAssertEqual(Heartbeat(defaults: defaults).lastAliveAt, t0.addingTimeInterval(31))
+    }
 }
