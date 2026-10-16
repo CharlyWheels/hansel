@@ -289,6 +289,17 @@ customer when no todo fits. These items are what the todos' dossiers will be wri
   in the toolbar does the same for every open todo that has nothing yet, and **Collect
   now** runs the regular collection at once. One collection runs at a time; the page
   shows its progress and the report when it ends.
+- **Dashboard and Analytics.**
+  - **On the Dashboard:**
+    - each open todo shows its customer and the next step from its dossier, or a
+      **Gather context** link when it has none;
+    - **Context to place** lists what waits in the inbox;
+    - **Latest context** shows the newest meetings, threads, emails and pages, when the
+      last collection ran, and a **Collect now** link.
+  - **In Analytics**, *Customers, todos and context* compares, for the period, the time
+    tracked per customer and per open todo with what happened (items by source). It
+    flags customers with a lot going on and no time tracked, and shows how much of the
+    collected context was placed automatically.
 - **The Inbox.** Assign each item to a todo or customer, or discard it. Assigning offers to
   add the item's domains or channel to the customer's aliases. Your latest decisions are
   shown to Codex as examples on its next run.

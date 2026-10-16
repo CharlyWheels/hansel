@@ -83,6 +83,7 @@ struct AnalyticsView: View {
                     HeatmapCard(snapshot: snapshot)
                     FocusCard(snapshot: snapshot)
                     MeetingsAnalyticsCard(snapshot: snapshot)
+                    ContextAnalyticsCard(interval: snapshot.interval, entries: entries)
                     QualityCard(snapshot: snapshot)
                 } else {
                     ProgressView().frame(maxWidth: .infinity).padding(40)

@@ -443,17 +443,9 @@ extension MCPTools {
         let root = todo.root
         let customer = todo.effectiveCustomer
 
-        // Time linked to the todo or its subtasks, plus time on its project that no todo
-        // claims: entries are often logged on the project alone.
-        let project = todo.inheritedProject
-        let entries = fetchAll(TimeEntry.self).filter { entry in
-            guard entry.supersededByID == nil else { return false }
-            if let linked = entry.linkedTodo { return ids.contains(linked.id) }
-            return project != nil && entry.project?.id == project?.id
-        }
-        func seconds(_ list: [TimeEntry]) -> TimeInterval {
-            list.reduce(0) { $0 + (($1.endAt ?? now).timeIntervalSince($1.startAt)) }
-        }
+        // Linked to the todo or its subtasks, plus its project's time no todo claims.
+        let entries = ContextInsights.entries(for: todo, in: fetchAll(TimeEntry.self))
+        func seconds(_ list: [TimeEntry]) -> TimeInterval { ContextInsights.seconds(list, now: now) }
         let weekAgo = now.addingTimeInterval(-7 * 86_400)
 
         let items = fetchAll(ContextItem.self)
