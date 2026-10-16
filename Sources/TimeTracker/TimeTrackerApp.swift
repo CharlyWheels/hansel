@@ -47,6 +47,7 @@ struct TimeTrackerApp: App {
     @State private var arbiter: FocusArbiter
     @State private var meetingImporter: MeetingImporter
     @State private var proposalService: ProposalService
+    @State private var contextService: ContextService
     @State private var diarization: DiarizationService
     @State private var summaryWriter: NamedSummaryWriter
     @State private var router = MainWindowRouter()
@@ -209,7 +210,11 @@ struct TimeTrackerApp: App {
         importer.onImported = { [weak proposals] record, document in
             proposals?.meetingImported(record, document: document)
         }
-        importer.onRemoved = { [weak proposals] ids in proposals?.meetingsRemoved(ids) }
+        let contextItems = ContextService(modelContext: ctx)
+        importer.onRemoved = { [weak proposals, weak contextItems] ids in
+            proposals?.meetingsRemoved(ids)
+            contextItems?.meetingsRemoved(ids)
+        }
         let enricher = MeetingTaskEnricher(modelContext: ctx)
         // Speakers come before the model: it judges whose task each item is better when
         // the transcript says who said what. Diarising takes seconds.
@@ -224,9 +229,11 @@ struct TimeTrackerApp: App {
                 enricher?.meetingReady(record, document: document)
             }
         }
-        importer.onScanFinished = { [weak enricher, weak speakers] in
+        importer.onScanFinished = { [weak enricher, weak speakers, weak contextItems] in
             speakers?.retryDue()
             enricher?.retryDue()
+            // Meetings become context items once finished, and follow the todos accepted from them.
+            contextItems?.syncMeetings()
         }
         // Past decisions shape the next proposals: rules first, then the model's examples.
         proposals.learned = { [weak ctx] record in
@@ -241,8 +248,10 @@ struct TimeTrackerApp: App {
         }
         _meetingEnricher = State(wrappedValue: enricher)
         _proposalService = State(wrappedValue: proposals)
+        _contextService = State(wrappedValue: contextItems)
         // Assistants on this Mac go through the same context and controller as the UI.
-        let mcp = MCPServer(handler: MCPHandler(tools: MCPTools(context: ctx, controller: ctrl, proposals: proposals)))
+        let mcp = MCPServer(handler: MCPHandler(tools: MCPTools(context: ctx, controller: ctrl, proposals: proposals,
+                                                                   contextItems: contextItems)))
         _mcpServer = State(wrappedValue: mcp)
         _diarization = State(wrappedValue: speakers)
         let writer = NamedSummaryWriter(modelContext: ctx)
@@ -270,6 +279,7 @@ struct TimeTrackerApp: App {
                 .environment(promptCenter)
                 .environment(meetingImporter)
                 .environment(proposalService)
+                .environment(contextService)
                 .environment(diarization)
                 .environment(summaryWriter)
                 .environment(router)
@@ -290,6 +300,7 @@ struct TimeTrackerApp: App {
                 .environment(promptCenter)
                 .environment(meetingImporter)
                 .environment(proposalService)
+                .environment(contextService)
                 .environment(diarization)
                 .environment(summaryWriter)
                 .environment(router)
@@ -309,6 +320,7 @@ struct TimeTrackerApp: App {
                 .environment(promptCenter)
                 .environment(meetingImporter)
                 .environment(proposalService)
+                .environment(contextService)
                 .environment(diarization)
                 .environment(summaryWriter)
                 .environment(router)

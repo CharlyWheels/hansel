@@ -258,6 +258,42 @@ final class MCPTests: XCTestCase {
         XCTAssertEqual((sub["customer"] as? JSONObject)?["name"] as? String, "Inditex")
     }
 
+    func test_contextCollectionBriefAndItems() throws {
+        _ = try object("create_customer", ["name": "Lululemon", "aliases": "LULU, lululemon.com"])
+        _ = try object("create_customer", ["name": "Personal", "excluded_from_context": true])
+        _ = try object("create_todo", ["title": "Demo", "customer": "Lululemon"])
+        _ = try object("create_todo", ["title": "Visa", "customer": "Personal"])
+
+        let brief = try object("get_ingest_brief")
+        XCTAssertEqual((brief["customers"] as? [JSONObject])?.map { $0["name"] as? String }, ["Lululemon"])
+        XCTAssertEqual((brief["open_todos"] as? [JSONObject])?.map { $0["path"] as? String }, ["Demo"],
+                       "personal todos are not handed out")
+        let aliases = try XCTUnwrap((brief["customers"] as? [JSONObject])?.first?["aliases"] as? [JSONObject])
+        XCTAssertEqual(aliases.first?["value"] as? String, "LULU")
+        XCTAssertEqual(aliases.first?["acronym"] as? Bool, true)
+        XCTAssertNotNil((brief["collect_since"] as? JSONObject)?["slack"])
+
+        let added = try object("add_context_items", [
+            "items": [[
+                "source": "email", "external_id": "conv-1", "title": "Demo data", "date": "2026-10-16T10:00",
+                "participants": ["ana@lululemon.com"], "summary": "They sent the master data.",
+            ]],
+            "completed_sources": ["email": "2026-10-16T12:00"],
+        ])
+        XCTAssertEqual(added["assigned"] as? Int, 1)
+        XCTAssertEqual(((added["items"] as? [JSONObject])?.first?["todo"] as? JSONObject)?["name"] as? String, "Demo")
+        XCTAssertEqual((added["collect_since"] as? JSONObject)?["email"] as? String,
+                       iso(try XCTUnwrap(MCPArguments.parseDate("2026-10-16T12:00"))))
+
+        XCTAssertTrue(try call("add_context_items", ["items": [["source": "meeting", "external_id": "x", "title": "t",
+                                                               "date": "2026-10-16", "summary": "s"]]]).isError,
+                      "meetings are Hansel's own")
+        XCTAssertTrue(try call("add_context_items", ["completed_sources": ["fax": "2026-10-16"]]).isError)
+
+        let listed = try XCTUnwrap(try callOK("list_context_items", ["todo": "Demo"]) as? [JSONObject])
+        XCTAssertEqual(listed.map { $0["title"] as? String }, ["Demo data"])
+    }
+
     func test_catalogCreateUpdateAndBillableRecache() throws {
         _ = try object("create_customer", ["name": "Acme", "email_domains": "acme.com"])
         XCTAssertTrue(try call("create_customer", ["name": "acme"]).isError, "duplicate names are refused")
