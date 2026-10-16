@@ -64,7 +64,7 @@ final class TodoProposalTests: XCTestCase {
 
     func test_resolve_prefersLearnedThenEntryThenPastThenAttendees() {
         let acme = Customer(name: "Acme")
-        acme.emailDomains = "acme.com"
+        acme.aliases = "acme.com"
         let api = Project(name: "API", customer: acme)
         let web = Project(name: "Web", customer: acme)
         let other = Project(name: "Internal")

@@ -2,18 +2,6 @@ import SwiftUI
 import SwiftData
 
 extension Todo {
-    /// First project found by walking the parent chain (including self).
-    /// Subtasks inherit the project of their nearest ancestor when they don't
-    /// have their own `relatedProject` set.
-    var inheritedProject: Project? {
-        var node: Todo? = self
-        while let n = node {
-            if let p = n.relatedProject { return p }
-            node = n.parent
-        }
-        return nil
-    }
-
     /// Color used for the todo's title text when it (or an ancestor) is tied to
     /// a project. Returns nil when no project is in the chain — callers fall
     /// back to the default text color.
@@ -196,9 +184,18 @@ struct TodosView: View {
                 Text(todo.title.isEmpty ? "(untitled)" : todo.title)
                     .strikethrough(todo.isCompleted)
                     .foregroundStyle(todo.isCompleted ? .secondary : .primary)
-                let hasMeta = !todo.subtasks.isEmpty || todo.inheritedProject != nil
+                // The customer shows on top-level todos; subtasks share their root's.
+                let isRoot = todo.parent == nil
+                let hasMeta = !todo.subtasks.isEmpty || todo.inheritedProject != nil || isRoot
                 if hasMeta {
                     HStack(spacing: 6) {
+                        if isRoot {
+                            if let customer = todo.effectiveCustomer {
+                                Chip(text: customer.name, systemImage: "building.2")
+                            } else if !todo.isCompleted {
+                                Chip(text: "No customer", systemImage: "exclamationmark.circle", color: .orange)
+                            }
+                        }
                         if let project = todo.inheritedProject {
                             Chip(text: project.name, systemImage: "folder", color: project.displayColor)
                         }

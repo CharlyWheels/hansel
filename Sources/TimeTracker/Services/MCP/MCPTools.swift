@@ -27,13 +27,16 @@ final class MCPTools {
     let context: ModelContext
     let controller: TimerController
     let proposals: ProposalService
+    let contextItems: ContextService
     private(set) var tools: [Tool] = []
 
-    init(context: ModelContext, controller: TimerController, proposals: ProposalService) {
+    init(context: ModelContext, controller: TimerController, proposals: ProposalService,
+         contextItems: ContextService? = nil) {
         self.context = context
         self.controller = controller
         self.proposals = proposals
-        tools = readTools() + writeTools()
+        self.contextItems = contextItems ?? ContextService(modelContext: context)
+        tools = readTools() + writeTools() + contextTools()
     }
 
     var definitions: [JSONObject] {
@@ -109,6 +112,7 @@ final class MCPTools {
 
     nonisolated static let dateHint = "ISO 8601, e.g. 2026-10-09T14:30 (local time when no offset) or 2026-10-09."
     nonisolated static let clearHint = "Pass an empty string to clear it."
+    nonisolated static let aliasesHint = "Comma-separated other names the customer goes by: email domains (acme.com), abbreviations (ITX), Slack channels (#acme-rollout) and contacts (jane@acme.com)."
 
     // MARK: - Lookups
 
@@ -262,7 +266,9 @@ final class MCPTools {
             "id": customer.id.uuidString,
             "name": customer.name,
             "default_billable": customer.defaultBillable,
-            "email_domains": customer.emailDomains,
+            "aliases": CustomerMatcher.aliases(of: customer).map { ["kind": $0.kind.rawValue, "value": $0.value] },
+            "email_domains": CustomerMatcher.domains(of: customer).joined(separator: ", "),
+            "excluded_from_context": customer.excludedFromContext,
             "projects": customer.projects.map(\.name).sorted(),
         ]
     }
@@ -281,6 +287,8 @@ final class MCPTools {
             "completed_at": Self.value(todo.completedAt),
             "due": Self.value(todo.dueAt),
             "project": Self.ref(todo.relatedProject?.id, todo.relatedProject?.name),
+            // A subtask's is its top-level todo's.
+            "customer": Self.ref(todo.effectiveCustomer?.id, todo.effectiveCustomer?.name),
             "notes": Self.value(todo.notes),
             "subtask_count": todo.subtasks.count,
         ]
@@ -347,6 +355,36 @@ struct MCPArguments {
             throw MCPTools.ToolError("\(key) must be a whole number.")
         }
         return value.intValue
+    }
+
+    func number(_ key: String) throws -> Double? {
+        guard has(key) else { return nil }
+        guard let value = raw[key] as? NSNumber, !(raw[key] is Bool) else {
+            throw MCPTools.ToolError("\(key) must be a number.")
+        }
+        return value.doubleValue
+    }
+
+    func strings(_ key: String) throws -> [String]? {
+        guard has(key) else { return nil }
+        guard let values = raw[key] as? [Any], values.allSatisfy({ $0 is String }) else {
+            throw MCPTools.ToolError("\(key) must be a list of strings.")
+        }
+        return values.compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
+    }
+
+    func objects(_ key: String) throws -> [JSONObject]? {
+        guard has(key) else { return nil }
+        guard let values = raw[key] as? [Any], values.allSatisfy({ $0 is JSONObject }) else {
+            throw MCPTools.ToolError("\(key) must be a list of objects.")
+        }
+        return values.compactMap { $0 as? JSONObject }
+    }
+
+    func object(_ key: String) throws -> JSONObject? {
+        guard has(key) else { return nil }
+        guard let value = raw[key] as? JSONObject else { throw MCPTools.ToolError("\(key) must be an object.") }
+        return value
     }
 
     func date(_ key: String) throws -> Date? {

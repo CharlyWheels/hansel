@@ -207,11 +207,14 @@ on the Acme website", "add a todo to send the deck", "stop the timer".
 **Tools**
 - Read: `get_today`, `get_running_entry`, `list_entries`, `get_entry`, `list_projects`,
   `list_customers`, `list_roles`, `list_todos`, `list_meetings`, `get_meeting`,
-  `list_todo_proposals`, `get_report`.
+  `list_todo_proposals`, `get_report`, `get_ingest_brief`, `list_context_items`.
 - Create and edit: `start_timer`, `stop_timer`, `create_entry`, `update_entry`,
   `create_todo`, `update_todo`, `create_project`, `update_project`, `create_customer`,
   `update_customer`, `create_role`, `update_role`, `rename_meeting`,
-  `accept_todo_proposal`, `decline_todo_proposal`.
+  `accept_todo_proposal`, `decline_todo_proposal`, `add_context_items`.
+- Todos carry their customer; `create_todo` / `update_todo` take one for top-level todos.
+  `create_customer` / `update_customer` take `aliases` and `excluded_from_context`, and
+  refuse a name or alias another customer already goes by.
 - Projects, customers, roles and todos can be named instead of given by id; an ambiguous
   name is refused with the candidates. Times are ISO 8601, local time without an offset.
 - Entries that would overlap another entry, or end in the future, are refused rather
@@ -226,6 +229,65 @@ on the Acme website", "add a todo to send the deck", "stop the timer".
 - What an assistant reads is sent to its own AI provider, like anything else you show it.
 - ChatGPT's web and mobile apps only connect to servers on the internet, so they are not
   supported.
+
+## Customers, aliases and todos
+
+Every todo works for a customer from a closed list. The customer is set on top-level
+todos; subtasks work for their root's customer. A project with a customer decides it, so
+the two never disagree. Open todos without one show a **No customer** chip in Todos. For
+work that is no customer's, create an internal customer such as "Internal".
+
+A customer's **aliases** are the other names it goes by, comma-separated: email domains
+(`acme.com`), abbreviations (`ITX`), Slack channels (`#acme-rollout`) and contacts
+(`jane@acme.com`). Meetings with people from its domains are attributed to it. Names
+and abbreviations count as whole words, ignoring accents and case, except acronyms: an
+alias typed in capitals ("AM", "ANF", "BOSS") only counts written in capitals, so "I am"
+or "my boss" is not a customer. A new
+customer, or an alias, that another customer already goes by is refused ("Inditex",
+"inditex" and an existing alias "ITX" are the same customer), so the list has no
+duplicates.
+
+**Keep out of AI context** on a customer (e.g. "Personal") keeps its todos, meetings and
+messages out of everything gathered as context for AI assistants.
+
+## Context from every source
+
+The **Context** page holds one item per meeting, Slack thread, email conversation, Teams
+chat, calendar event, Confluence page or GitHub issue about your work: a short summary,
+the facts worth keeping, and a link to the original. Each item belongs to a todo, or to a
+customer when no todo fits. These items are what the todos' dossiers will be written from.
+
+- **Meetings** become items on their own once finished. They follow the todo their
+  accepted tasks went under (or their time entry's todo), else the attendees' domains
+  and the title. A meeting is left out only when every task taken from it is personal,
+  and tasks filed under a personal todo are left out of its details.
+- **Everything else** is collected by Codex, the assistant that has the Slack, Outlook,
+  Teams, Atlassian and GitHub connectors. `scripts/context-ingest/run.sh` runs
+  `codex exec` with `scripts/context-ingest/prompt.md`:
+  1. Codex asks Hansel what to look for (`get_ingest_brief`).
+  2. It reads each source since the last completed run.
+  3. It sends short summaries with its suggested todo or customer (`add_context_items`).
+
+  Codex only reads those sources and writes nothing but these items. Hansel makes no
+  model calls for this.
+- **Where an item goes.** Hansel checks the suggestion against its own signals:
+  - Its own signals are the people's email domains, the channel, the contacts in the
+    customers' aliases, and a single customer named in the title. A customer named only
+    in the summary counts as a hint. Customers named like ordinary words ("Internal",
+    "Personal") are only found by their aliases.
+  - When both agree, or one is sure and the other has no objection, the item is assigned.
+  - When they disagree, or neither is sure, the item waits in the **Inbox** on the Context
+    page.
+  - Anything about a customer kept out of AI context is not stored.
+- **The Inbox.** Assign each item to a todo or customer, or discard it. Assigning offers to
+  add the item's domains or channel to the customer's aliases. Your latest decisions are
+  shown to Codex as examples on its next run.
+- **Schedule.** `scripts/context-ingest/install.sh` runs the collection every 3 hours
+  through launchd, and a run missed while the Mac slept happens on wake.
+  - `INTERVAL_HOURS=6 scripts/context-ingest/install.sh` changes the interval.
+  - `scripts/context-ingest/install.sh uninstall` removes it.
+  - Logs are written to `~/Library/Logs/TimeTracker/context-ingest-*.log`.
+  - Hansel must be running, with *Allow AI assistants on this Mac* on.
 
 ## Settings worth knowing
 

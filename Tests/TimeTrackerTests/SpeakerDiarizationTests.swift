@@ -148,7 +148,7 @@ final class SpeakerDiarizationTests: XCTestCase {
 
     func test_customerComesFromWhoSpokeNotFromMe() {
         let acme = Customer(name: "Acme")
-        acme.emailDomains = "acme.com"
+        acme.aliases = "acme.com"
         let globex = Customer(name: "Globex")
         let me = SpeakerProfile(name: "Carlos", isMe: true)
         me.customerID = globex.id

@@ -1,0 +1,2 @@
+# Shell scripts must keep LF even where core.autocrlf is on, or zsh cannot run them.
+*.sh text eol=lf

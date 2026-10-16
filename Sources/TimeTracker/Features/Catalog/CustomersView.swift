@@ -9,6 +9,7 @@ struct CustomersView: View {
     @State private var newName: String = ""
     @State private var newBillable: Bool = true
     @State private var pendingDelete: IndexSet?
+    @State private var addConflict: CustomerMatcher.Conflict?
 
     var body: some View {
         NavigationStack {
@@ -16,6 +17,9 @@ struct CustomersView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     PageHeader("Customers", subtitle: "\(customers.count) customer\(customers.count == 1 ? "" : "s")")
                     addRow
+                    if let addConflict {
+                        Text(addConflict.message).font(.caption).foregroundStyle(.red)
+                    }
                 }
                 .padding([.horizontal, .top], 20)
                 .padding(.bottom, 12)
@@ -63,8 +67,11 @@ struct CustomersView: View {
                 HStack(spacing: 6) {
                     Chip(text: "\(customer.projects.count) project\(customer.projects.count == 1 ? "" : "s")", systemImage: "folder")
                     BillableChip(billable: customer.defaultBillable)
-                    if !customer.emailDomains.isEmpty {
-                        Chip(text: customer.emailDomains, systemImage: "at")
+                    if !customer.aliases.isEmpty {
+                        Chip(text: CustomerMatcher.aliases(of: customer).map(\.value).joined(separator: ", "), systemImage: "at")
+                    }
+                    if customer.excludedFromContext {
+                        Chip(text: "Kept out of AI context", systemImage: "eye.slash")
                     }
                     if !customer.rules.isEmpty {
                         Chip(text: "\(customer.rules.count) rule\(customer.rules.count == 1 ? "" : "s")", systemImage: "wand.and.stars")
@@ -83,7 +90,8 @@ struct CustomersView: View {
     }
 
     private func add() {
-        guard HanselActions.addCustomer(name: newName, defaultBillable: newBillable, context: modelContext) != nil else { return }
+        addConflict = HanselActions.customerConflict(name: newName, context: modelContext)
+        guard addConflict == nil, HanselActions.addCustomer(name: newName, defaultBillable: newBillable, context: modelContext) != nil else { return }
         newName = ""
         newBillable = true
     }
