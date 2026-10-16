@@ -23,6 +23,15 @@ final class Todo {
     /// (see `effectiveCustomer`). A project with a customer decides it.
     var customer: Customer?
 
+    // MARK: Dossier
+    /// What is known about this todo, in Markdown, written by the assistant from its
+    /// context items (and editable by the user). Defaults on the declarations so
+    /// SwiftData can migrate.
+    var dossier: String = ""
+    var dossierUpdatedAt: Date? = nil
+    /// The newest context item already in the dossier (`ContextItem.updatedAt`).
+    var dossierThrough: Date? = nil
+
     // Inverses with `.nullify`, so deleting this leaves past entries in place with
     // the link cleared, instead of dangling references to a deleted model.
     @Relationship(deleteRule: .nullify, inverse: \TimeEntry.linkedTodo)

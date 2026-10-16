@@ -207,11 +207,12 @@ on the Acme website", "add a todo to send the deck", "stop the timer".
 **Tools**
 - Read: `get_today`, `get_running_entry`, `list_entries`, `get_entry`, `list_projects`,
   `list_customers`, `list_roles`, `list_todos`, `list_meetings`, `get_meeting`,
-  `list_todo_proposals`, `get_report`, `get_ingest_brief`, `list_context_items`.
+  `list_todo_proposals`, `get_report`, `get_ingest_brief`, `list_context_items`,
+  `get_dossier_work`.
 - Create and edit: `start_timer`, `stop_timer`, `create_entry`, `update_entry`,
   `create_todo`, `update_todo`, `create_project`, `update_project`, `create_customer`,
   `update_customer`, `create_role`, `update_role`, `rename_meeting`,
-  `accept_todo_proposal`, `decline_todo_proposal`, `add_context_items`.
+  `accept_todo_proposal`, `decline_todo_proposal`, `add_context_items`, `update_dossier`.
 - Todos carry their customer; `create_todo` / `update_todo` take one for top-level todos.
   `create_customer` / `update_customer` take `aliases` and `excluded_from_context`, and
   refuse a name or alias another customer already goes by.
@@ -282,6 +283,19 @@ customer when no todo fits. These items are what the todos' dossiers will be wri
 - **The Inbox.** Assign each item to a todo or customer, or discard it. Assigning offers to
   add the item's domains or channel to the customer's aliases. Your latest decisions are
   shown to Codex as examples on its next run.
+- **Dossiers.** Each open todo and each customer has a dossier: a Markdown page with
+  these sections: Summary, Status, Decisions, People, Open questions, Next steps and
+  Sources.
+  - After sending the items, the same Codex run rewrites every dossier that has new
+    context (`get_dossier_work` / `update_dossier`). It starts from the current dossier
+    and gets only what is new since then.
+  - A todo's dossier covers its subtasks. A customer's is written from its todos'
+    dossiers plus the items about the customer alone.
+  - Hansel refuses a dossier that is missing a section or is too long (6,000 characters
+    for a todo, 8,000 for a customer), so old detail is condensed rather than piling up.
+  - You can read and edit dossiers on the todo's and the customer's pages. The next
+    rewrite starts from your text.
+  - Customers kept out of AI context have none.
 - **Schedule.** `scripts/context-ingest/install.sh` runs the collection every 3 hours
   through launchd, and a run missed while the Mac slept happens on wake.
   - `INTERVAL_HOURS=6 scripts/context-ingest/install.sh` changes the interval.
