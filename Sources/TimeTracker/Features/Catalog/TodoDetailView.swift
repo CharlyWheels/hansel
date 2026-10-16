@@ -85,6 +85,18 @@ struct TodoDetailView: View {
                 }
             }
 
+            if todo.isExcludedFromContext {
+                Section("Dossier") {
+                    Text("This todo's customer is kept out of AI context, so it has no dossier.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+            } else {
+                DossierSection(dossier: $todo.dossier, updatedAt: todo.dossierUpdatedAt) {
+                    todo.dossierUpdatedAt = Date()
+                    try? modelContext.save()
+                }
+            }
+
             Section("Deadline") {
                 Toggle("Has deadline", isOn: hasDeadlineBinding)
                 if todo.dueAt != nil {

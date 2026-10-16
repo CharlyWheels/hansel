@@ -16,6 +16,14 @@ final class Customer {
     /// as context for AI assistants (e.g. a "Personal" customer).
     var excludedFromContext: Bool = false
 
+    // MARK: Dossier
+    /// What is known about this customer across its todos, in Markdown, written by the
+    /// assistant from the todos' dossiers and the items about the customer alone.
+    var dossier: String = ""
+    var dossierUpdatedAt: Date? = nil
+    /// The newest item or todo dossier already in it.
+    var dossierThrough: Date? = nil
+
     /// Deleting a customer keeps its projects (they become customer-less) rather than
     /// silently deleting them and the attribution of every past entry with them.
     @Relationship(deleteRule: .nullify, inverse: \Project.customer)

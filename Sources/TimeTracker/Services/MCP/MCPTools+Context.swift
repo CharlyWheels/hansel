@@ -281,3 +281,109 @@ extension MCPTools {
         [todo] + todo.subtasks.flatMap(subtree)
     }
 }
+
+// MARK: - Dossiers
+
+extension MCPTools {
+
+    func dossierTools() -> [Tool] {
+        [
+            Tool(
+                name: "get_dossier_work", title: "Get dossiers to update",
+                description: """
+                Dossiers that have new context since they were last written: todos first (a todo's covers \
+                its subtasks), then customers (written from their todos' dossiers and the items about the \
+                customer alone). Each comes with its current dossier and only the new items. Rewrite each \
+                with update_dossier, passing its `through` back; call again until nothing is left.
+                """,
+                properties: ["limit": Self.integer("At most this many (default 10).")],
+                required: [], readOnly: true
+            ) { [unowned self] args in try dossierWork(args) },
+
+            Tool(
+                name: "update_dossier", title: "Update dossier",
+                description: """
+                Saves the rewritten dossier of a todo or customer: the current one with the new items worked \
+                in, in Markdown with exactly these sections, in this order:
+
+                \(DossierService.template)
+
+                Keep facts, dates, numbers, names and links; drop chit-chat. At most \
+                \(DossierService.todoLimit) characters for a todo and \(DossierService.customerLimit) for a \
+                customer: condense old detail rather than dropping recent facts, and always keep the link to \
+                a key source. Anything the user wrote in the current dossier stays unless newer facts \
+                contradict it. Refused, with the reason, when a section is missing or it is too long.
+                """,
+                properties: [
+                    "kind": Self.choice(["todo", "customer"], "What the dossier is about."),
+                    "id": Self.string("The todo's or customer's id, from get_dossier_work."),
+                    "dossier": Self.string("The whole dossier, in Markdown."),
+                    "through": Self.string("The `through` value get_dossier_work gave for it."),
+                ],
+                required: ["kind", "id", "dossier", "through"], readOnly: false
+            ) { [unowned self] args in try updateDossier(args) },
+        ]
+    }
+
+    /// `through` rounded up to the millisecond, so an item saved within the same
+    /// millisecond is never counted as new again.
+    static func throughToken(_ date: Date) -> String {
+        let rounded = Date(timeIntervalSinceReferenceDate: (date.timeIntervalSinceReferenceDate * 1000).rounded(.up) / 1000)
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = .current
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: rounded)
+    }
+
+    private func dossierWork(_ args: MCPArguments) throws -> [JSONObject] {
+        let limit = max(1, min(try args.int("limit") ?? 10, 25))
+        return DossierService.pendingWork(context: context, limit: limit).map { work in
+            var json: JSONObject = [
+                "kind": work.kind.rawValue,
+                "id": work.id.uuidString,
+                "name": work.name,
+                "customer": Self.value(work.customerName),
+                "current_dossier": work.current,
+                "through": Self.throughToken(work.through),
+                "new_items": work.newItems.map { item -> JSONObject in
+                    [
+                        "source": item.source.rawValue,
+                        "title": item.title,
+                        "date": Self.format(item.occurredAt),
+                        "url": Self.value(item.url),
+                        "participants": Array(item.participants.prefix(10)),
+                        "summary": item.summary,
+                        "details": item.details,
+                    ]
+                },
+            ]
+            if work.kind == .customer {
+                json["todo_dossiers"] = work.todoDossiers.map { ["todo": $0.path, "dossier": $0.dossier] }
+            }
+            return json
+        }
+    }
+
+    private func updateDossier(_ args: MCPArguments) throws -> JSONObject {
+        let kind = try args.requiredString("kind")
+        let id = try args.requiredString("id")
+        let markdown = try args.requiredString("dossier")
+        guard let through = try args.date("through") else { throw ToolError("through is required.") }
+        do {
+            switch kind {
+            case "todo":
+                let todo = try self.todo(id)
+                try DossierService.saveTodo(todo, markdown: markdown, through: through, context: context)
+                return ["saved": true, "todo": todo.breadcrumbPath, "characters": todo.dossier.count]
+            case "customer":
+                let customer = try self.customer(id)
+                try DossierService.saveCustomer(customer, markdown: markdown, through: through, context: context)
+                return ["saved": true, "customer": customer.name, "characters": customer.dossier.count]
+            default:
+                throw ToolError("kind must be todo or customer.")
+            }
+        } catch let rejection as DossierService.Rejection {
+            throw ToolError(rejection.message)
+        }
+    }
+}

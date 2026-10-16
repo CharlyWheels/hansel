@@ -315,6 +315,8 @@ final class ContextService {
     }
 
     private func decided(_ item: ContextItem, now: Date) {
+        // A newly placed item is new to that todo's dossier.
+        item.updatedAt = now
         item.assignedBy = .user
         item.confidence = 1
         item.resolvedByUserAt = now

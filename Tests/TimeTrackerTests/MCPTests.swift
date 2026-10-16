@@ -294,6 +294,27 @@ final class MCPTests: XCTestCase {
         XCTAssertEqual(listed.map { $0["title"] as? String }, ["Demo data"])
     }
 
+    func test_dossierWorkAndUpdateRoundTrip() throws {
+        _ = try object("create_customer", ["name": "Lululemon", "aliases": "lululemon.com"])
+        _ = try object("create_todo", ["title": "Demo", "customer": "Lululemon"])
+        _ = try object("add_context_items", ["items": [[
+            "source": "email", "external_id": "c1", "title": "Data", "date": "2026-10-16T10:00",
+            "participants": ["ana@lululemon.com"], "summary": "Master data sent.", "details": "Sent on Friday.",
+        ]]])
+        let work = try XCTUnwrap(try callOK("get_dossier_work") as? [JSONObject])
+        let todoWork = try XCTUnwrap(work.first)
+        XCTAssertEqual(todoWork["kind"] as? String, "todo")
+        XCTAssertEqual((todoWork["new_items"] as? [JSONObject])?.first?["details"] as? String, "Sent on Friday.")
+
+        let dossier = DossierService.sections.map { "\($0)\nNone." }.joined(separator: "\n")
+        XCTAssertTrue(try call("update_dossier", ["kind": "todo", "id": todoWork["id"]!, "dossier": "## Summary\nx",
+                                                  "through": todoWork["through"]!]).isError)
+        _ = try object("update_dossier", ["kind": "todo", "id": todoWork["id"]!, "dossier": dossier,
+                                          "through": todoWork["through"]!])
+        let next = try XCTUnwrap(try callOK("get_dossier_work") as? [JSONObject])
+        XCTAssertEqual(next.map { $0["kind"] as? String }, ["customer"], "the todo is done; its customer is next")
+    }
+
     func test_catalogCreateUpdateAndBillableRecache() throws {
         _ = try object("create_customer", ["name": "Acme", "email_domains": "acme.com"])
         XCTAssertTrue(try call("create_customer", ["name": "acme"]).isError, "duplicate names are refused")

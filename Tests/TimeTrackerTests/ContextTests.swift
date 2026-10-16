@@ -221,4 +221,42 @@ final class ContextTests: XCTestCase {
         XCTAssertFalse(service.addAlias("lululemon.com", to: alvaro), "another customer's")
         XCTAssertEqual(CustomerMatcher.domains(of: alvaro), ["alvaromoreno.es", "zara.com"])
     }
+
+    // MARK: - Dossiers
+
+    private var validDossier: String {
+        DossierService.sections.map { "\($0)\nNone." }.joined(separator: "\n")
+    }
+
+    func test_dossierWorkCoversSubtasksAndOnlyNewItems() throws {
+        let t0 = Date(timeIntervalSince1970: 2_000_000_000)
+        service.ingest([incoming("a", todo: supplySub.id, confidence: 0.9)], now: t0)
+        var work = DossierService.pendingWork(context: context)
+        XCTAssertEqual(Set(work.map(\.name)), ["Supply Chain", "Supply Chain › Test EPC API"],
+                       "the root's dossier covers its subtasks")
+
+        try DossierService.saveTodo(supply, markdown: validDossier, through: work.first { $0.id == supply.id }?.through,
+                                    context: context, now: t0)
+        try DossierService.saveTodo(supplySub, markdown: validDossier, through: t0, context: context, now: t0)
+        work = DossierService.pendingWork(context: context)
+        XCTAssertEqual(work.map(\.kind), [.customer], "then the customer, from its todos' dossiers")
+        XCTAssertEqual(work.first?.todoDossiers.map(\.path), ["Supply Chain"])
+        try DossierService.saveCustomer(alvaro, markdown: validDossier, through: work.first?.through, context: context)
+        XCTAssertTrue(DossierService.pendingWork(context: context).isEmpty)
+
+        service.ingest([incoming("b", todo: supply.id, confidence: 0.9)], now: t0.addingTimeInterval(60))
+        work = DossierService.pendingWork(context: context)
+        XCTAssertEqual(work.map(\.name), ["Supply Chain"])
+        XCTAssertEqual(work.first?.newItems.map(\.externalID), ["b"], "only what is new since it was written")
+    }
+
+    func test_dossiersMustHaveEverySectionAndStayBounded() {
+        XCTAssertNil(DossierService.problem(validDossier, kind: .todo))
+        XCTAssertNotNil(DossierService.problem("## Summary\nx", kind: .todo))
+        let long = validDossier + String(repeating: "x", count: DossierService.todoLimit)
+        XCTAssertNotNil(DossierService.problem(long, kind: .todo))
+        XCTAssertThrowsError(try DossierService.saveTodo(visa, markdown: validDossier, through: nil, context: context),
+                             "personal todos get none")
+        XCTAssertFalse(DossierService.pendingWork(context: context).contains { $0.id == visa.id })
+    }
 }

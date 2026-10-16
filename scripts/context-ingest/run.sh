@@ -45,7 +45,7 @@ log "start"
   -c approval_policy='"never"' \
   --output-last-message "$WORKDIR/last-report.txt" \
   - < "$SCRIPT_DIR/prompt.md" >> "$LOG" 2>&1
-status=$?
-log "end status=$status"
+exit_code=$?
+log "end status=$exit_code"
 [[ -f "$WORKDIR/last-report.txt" ]] && { print -r -- "--- report ---"; cat "$WORKDIR/last-report.txt"; print; } >> "$LOG"
-exit $status
+exit $exit_code

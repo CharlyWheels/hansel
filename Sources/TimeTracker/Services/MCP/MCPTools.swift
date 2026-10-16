@@ -36,7 +36,7 @@ final class MCPTools {
         self.controller = controller
         self.proposals = proposals
         self.contextItems = contextItems ?? ContextService(modelContext: context)
-        tools = readTools() + writeTools() + contextTools()
+        tools = readTools() + writeTools() + contextTools() + dossierTools()
     }
 
     var definitions: [JSONObject] {

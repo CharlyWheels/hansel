@@ -38,6 +38,12 @@ struct CustomerDetailView: View {
                 Text("Todos, meetings and messages of this customer are never gathered as context for AI assistants. Use it for personal matters.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            if !customer.excludedFromContext {
+                DossierSection(dossier: $customer.dossier, updatedAt: customer.dossierUpdatedAt) {
+                    customer.dossierUpdatedAt = Date()
+                    try? modelContext.save()
+                }
+            }
             Section {
                 RulesSection(
                     rules: customer.rules,
