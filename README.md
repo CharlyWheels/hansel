@@ -301,7 +301,8 @@ customer when no todo fits. These items are what the todos' dossiers will be wri
   - the todo, its notes and subtasks;
   - its dossier, plus the top-level todo's for a subtask;
   - the Summary, Status and People sections of its customer's dossier;
-  - the time logged on it;
+  - the time logged on it: entries linked to it or its subtasks, plus entries on its
+    project that no todo claims;
   - context newer than the dossier;
   - the links to its sources.
 

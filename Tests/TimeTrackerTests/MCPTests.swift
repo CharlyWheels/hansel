@@ -338,6 +338,17 @@ final class MCPTests: XCTestCase {
         let task = try object("get_task_context", ["todo": "Demo"])
         XCTAssertEqual(task["dossier"] as? String, dossier)
         XCTAssertEqual((task["time_logged"] as? JSONObject)?["total_hours"] as? Double, 1, "subtasks' time included")
+
+        _ = try object("create_project", ["name": "Clustag", "customer": "Lululemon"])
+        _ = try object("update_todo", ["todo": "Demo", "project": "Clustag"])
+        _ = try object("create_entry", ["title": "Call", "project": "Clustag",
+                                        "start": iso(now.addingTimeInterval(-10_800)), "end": iso(now.addingTimeInterval(-9000))])
+        _ = try object("create_todo", ["title": "Other", "customer": "Lululemon"])
+        _ = try object("create_entry", ["title": "Other work", "project": "Clustag", "todo": "Other",
+                                        "start": iso(now.addingTimeInterval(-14_400)), "end": iso(now.addingTimeInterval(-12_600))])
+        let time = try XCTUnwrap(try object("get_task_context", ["todo": "Demo"])["time_logged"] as? JSONObject)
+        XCTAssertEqual(time["total_hours"] as? Double, 1.5, "the project's unclaimed time counts, another todo's does not")
+        XCTAssertEqual(time["on_its_project_only_hours"] as? Double, 0.5)
         XCTAssertEqual((task["subtasks"] as? [JSONObject])?.map { $0["path"] as? String }, ["Demo › Prepare data"])
         XCTAssertEqual((task["sources"] as? [JSONObject])?.map { $0["title"] as? String }, ["Visit plan", "Master data"])
         XCTAssertEqual((task["not_yet_in_dossier"] as? [JSONObject])?.count, 2)

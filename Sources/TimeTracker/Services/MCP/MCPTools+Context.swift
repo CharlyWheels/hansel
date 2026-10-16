@@ -443,8 +443,13 @@ extension MCPTools {
         let root = todo.root
         let customer = todo.effectiveCustomer
 
+        // Time linked to the todo or its subtasks, plus time on its project that no todo
+        // claims: entries are often logged on the project alone.
+        let project = todo.inheritedProject
         let entries = fetchAll(TimeEntry.self).filter { entry in
-            entry.supersededByID == nil && (entry.linkedTodo.map { ids.contains($0.id) } ?? false)
+            guard entry.supersededByID == nil else { return false }
+            if let linked = entry.linkedTodo { return ids.contains(linked.id) }
+            return project != nil && entry.project?.id == project?.id
         }
         func seconds(_ list: [TimeEntry]) -> TimeInterval {
             list.reduce(0) { $0 + (($1.endAt ?? now).timeIntervalSince($1.startAt)) }
@@ -475,6 +480,8 @@ extension MCPTools {
             "dossier_updated_at": Self.value(todo.dossierUpdatedAt),
             "time_logged": [
                 "total_hours": Self.hours(seconds(entries)),
+                "on_the_todo_hours": Self.hours(seconds(entries.filter { $0.linkedTodo != nil })),
+                "on_its_project_only_hours": Self.hours(seconds(entries.filter { $0.linkedTodo == nil })),
                 "last_7_days_hours": Self.hours(seconds(entries.filter { $0.startAt >= weekAgo })),
                 "entries": entries.count,
                 "first_worked": Self.value(entries.map(\.startAt).min()),
