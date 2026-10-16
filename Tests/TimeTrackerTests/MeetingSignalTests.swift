@@ -170,4 +170,13 @@ final class MeetingConfidenceTests: XCTestCase {
         signals.cameraActive = true
         XCTAssertGreaterThanOrEqual(MeetingConfidence.evaluate(signals).confidence, MeetingConfidence.enterThreshold)
     }
+
+    func test_outlookPrivateAppointmentsAreRecognised() {
+        XCTAssertTrue(MeetingWindow.isPrivateAppointmentTitle("Private Appointment"))
+        XCTAssertTrue(MeetingWindow.isPrivateAppointmentTitle(" private appointment "))
+        XCTAssertTrue(MeetingWindow.isPrivateAppointmentTitle("Privé-afspraak"))
+        XCTAssertFalse(MeetingWindow.isPrivateAppointmentTitle("Private appointment prep with Elena"),
+                       "only Outlook's placeholder, not a title that happens to contain it")
+        XCTAssertFalse(MeetingWindow.isPrivateAppointmentTitle("DL <> CR"))
+    }
 }

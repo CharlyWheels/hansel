@@ -91,6 +91,21 @@ struct MeetingWindow: Equatable, Sendable {
     /// "Focus") is on the calendar, but nobody is meeting anyone in it.
     var isRealMeeting: Bool { attendeeCount >= 2 || hasConferenceURL }
 
+    /// An event marked private in Outlook syncs to the Mac with its title replaced by
+    /// "Private Appointment" and nothing else to go on. It says nothing about the work,
+    /// so it is dropped and the task is decided from the Mac's activity and the todos.
+    var isPrivateAppointment: Bool { Self.isPrivateAppointmentTitle(title) }
+
+    /// The placeholder titles Exchange uses, in the languages Outlook is likely set to.
+    private static let privateAppointmentTitles: Set<String> = [
+        "private appointment", "privé-afspraak", "privéafspraak", "privater termin",
+        "cita privada", "rendez-vous privé",
+    ]
+
+    static func isPrivateAppointmentTitle(_ title: String) -> Bool {
+        privateAppointmentTitles.contains(title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+    }
+
     init(
         eventId: String,
         title: String,

@@ -140,7 +140,10 @@ final class MeetingProvider {
             end: now.addingTimeInterval(26 * 3600),
             calendars: calendars
         )
-        cache = store.events(matching: predicate).compactMap(Self.facts(from:))
+        // Private appointments never reach the segmenter, the arbiter or the prompts.
+        cache = store.events(matching: predicate)
+            .compactMap(Self.facts(from:))
+            .filter { !$0.isPrivateAppointment }
         AppLogger.calendar.info("Meeting cache refreshed: \(self.cache.count, privacy: .public) events")
         AppLogger.log("calendar", level: .info, "meetings_refreshed count=\(cache.count)")
     }
