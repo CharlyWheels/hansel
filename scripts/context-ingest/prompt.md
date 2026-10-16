@@ -51,6 +51,8 @@ changes data.
    - An acronym alias (`acronym: true`) only counts written in capitals; other aliases
      count in any case, as whole words.
    - Never send anything about `skip_customers` or personal matters.
+   If a source answers with rate-limit or throttling errors, stop reading it at once:
+   do not retry channel by channel. Leave it for the next run.
 5. Send the items with `add_context_items`, at most 50 per call. When a source has been
    fully read, put it in `completed_sources` with the brief's `now`, so the next run
    starts there. If a source fails or is unavailable, leave it out of
