@@ -8,6 +8,7 @@ struct TodoDetailView: View {
     @Query(sort: [SortDescriptor(\Todo.sortOrder), SortDescriptor(\Todo.createdAt)])
     private var allTodos: [Todo]
     @Query(sort: [SortDescriptor(\Project.name)]) private var projects: [Project]
+    @Query(sort: [SortDescriptor(\Customer.name)]) private var customers: [Customer]
 
     @State private var newSubtaskTitle: String = ""
     @State private var deleting: Todo?
@@ -60,10 +61,26 @@ struct TodoDetailView: View {
                         Text(candidate.breadcrumbPath).tag(Optional(candidate))
                     }
                 }
-                Picker("Related project", selection: $todo.relatedProject) {
+                if todo.parent == nil {
+                    Picker("Customer", selection: customerBinding) {
+                        Text("None").tag(Optional<Customer>.none)
+                        ForEach(customers) { customer in
+                            Text(customer.name).tag(Optional(customer))
+                        }
+                    }
+                    // A project's customer is the todo's customer.
+                    .disabled(todo.relatedProject?.customer != nil)
+                } else {
+                    LabeledContent("Customer") {
+                        Text(todo.effectiveCustomer.map { "\($0.name) (from parent)" } ?? "None (set it on the parent)")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Picker("Related project", selection: projectBinding) {
                     Text(inheritedLabel).tag(Optional<Project>.none)
-                    ForEach(projects) { project in
-                        Text(project.name).tag(Optional(project))
+                    ForEach(projectChoices) { project in
+                        Text(project.customer.map { "\(project.name) — \($0.name)" } ?? project.name)
+                            .tag(Optional(project))
                     }
                 }
             }
@@ -153,7 +170,6 @@ struct TodoDetailView: View {
         .onChange(of: todo.title) { _, _ in try? modelContext.save() }
         .onChange(of: todo.notes) { _, _ in try? modelContext.save() }
         .onChange(of: todo.isCompleted) { _, _ in try? modelContext.save() }
-        .onChange(of: todo.relatedProject) { _, _ in try? modelContext.save() }
         .onChange(of: todo.dueAt) { _, _ in try? modelContext.save() }
     }
 
@@ -163,6 +179,28 @@ struct TodoDetailView: View {
             return "Same as parent (\(inherited.name))"
         }
         return todo.parent == nil ? "None" : "Same as parent"
+    }
+
+    /// The customer's projects and those of no customer, plus the current one.
+    private var projectChoices: [Project] {
+        guard let customer = todo.effectiveCustomer else { return projects }
+        return projects.filter {
+            $0.customer == nil || $0.customer?.id == customer.id || $0.id == todo.relatedProject?.id
+        }
+    }
+
+    private var customerBinding: Binding<Customer?> {
+        Binding(
+            get: { todo.effectiveCustomer },
+            set: { HanselActions.setTodoCustomer(todo, $0, context: modelContext) }
+        )
+    }
+
+    private var projectBinding: Binding<Project?> {
+        Binding(
+            get: { todo.relatedProject },
+            set: { HanselActions.setTodoProject(todo, $0, context: modelContext) }
+        )
     }
 
     private var parentBinding: Binding<Todo?> {

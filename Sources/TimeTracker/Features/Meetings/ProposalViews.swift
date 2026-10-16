@@ -132,6 +132,7 @@ struct ProposalEditorView: View {
     @State private var title = ""
     @State private var notes = ""
     @State private var projectID: UUID?
+    @State private var customerID: UUID?
     @State private var hasDue = false
     @State private var due = Date()
 
@@ -146,6 +147,14 @@ struct ProposalEditorView: View {
                             Text(p.customer.map { "\(p.name) — \($0.name)" } ?? p.name).tag(UUID?.some(p.id))
                         }
                     }
+                    Picker("Customer", selection: customerBinding) {
+                        Text("None").tag(UUID?.none)
+                        ForEach(customers.sorted { $0.name < $1.name }) { c in
+                            Text(c.name).tag(UUID?.some(c.id))
+                        }
+                    }
+                    // A project's customer is the todo's customer.
+                    .disabled(projectCustomerID != nil)
                     Toggle("Due date", isOn: $hasDue)
                     if hasDue {
                         DatePicker("Due", selection: $due, displayedComponents: [.date, .hourAndMinute])
@@ -186,19 +195,26 @@ struct ProposalEditorView: View {
             title = proposal.title
             notes = proposal.notes
             projectID = proposal.projectID
+            customerID = proposal.customerID
             hasDue = proposal.dueAt != nil
             due = proposal.dueAt ?? Calendar.current.date(bySettingHour: 17, minute: 0, second: 0, of: Date()) ?? Date()
         }
+    }
+
+    private var projectCustomerID: UUID? {
+        projects.first { $0.id == projectID }?.customer?.id
+    }
+
+    private var customerBinding: Binding<UUID?> {
+        Binding(get: { projectCustomerID ?? customerID }, set: { customerID = $0 })
     }
 
     private func save() {
         proposal.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         proposal.notes = notes
         proposal.projectID = projectID
-        // A project names its customer; keep the meeting's customer only without one.
-        if let project = projects.first(where: { $0.id == projectID }), let customer = project.customer {
-            proposal.customerID = customer.id
-        }
+        // A project names its customer; the one picked here counts only without one.
+        proposal.customerID = projectCustomerID ?? customerID
         proposal.dueAt = hasDue ? due : nil
     }
 }

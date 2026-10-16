@@ -229,6 +229,35 @@ final class MCPTests: XCTestCase {
         XCTAssertTrue(moved["parent_id"] is NSNull)
     }
 
+    func test_todoCustomerAndCustomerAliases() throws {
+        let created = try object("create_customer", [
+            "name": "Inditex", "aliases": "ITX, #itx-rfid", "email_domains": "inditex.com",
+        ])
+        XCTAssertEqual(created["email_domains"] as? String, "inditex.com")
+        XCTAssertEqual((created["aliases"] as? [JSONObject])?.count, 3)
+        XCTAssertTrue(try call("create_customer", ["name": "itx"]).isError, "an alias is taken")
+        _ = try object("create_customer", ["name": "Personal", "excluded_from_context": true, "default_billable": false])
+        XCTAssertTrue(try call("update_customer", ["customer": "Personal", "aliases": "inditex.com"]).isError)
+
+        let updated = try object("update_customer", ["customer": "Inditex", "email_domains": "zara.com"])
+        XCTAssertEqual(updated["email_domains"] as? String, "zara.com", "only the domains are replaced")
+        XCTAssertEqual((updated["aliases"] as? [JSONObject])?.count, 3)
+
+        _ = try object("create_project", ["name": "RFID", "customer": "Inditex"])
+        let root = try object("create_todo", ["title": "Rollout", "customer": "Personal"])
+        XCTAssertEqual((root["customer"] as? JSONObject)?["name"] as? String, "Personal")
+        XCTAssertTrue(try call("create_todo", ["title": "Bad", "project": "RFID", "customer": "Personal"]).isError)
+        XCTAssertTrue(try call("create_todo", ["title": "Sub", "parent": "Rollout", "customer": "Inditex"]).isError,
+                      "subtasks take their root's customer")
+
+        let withProject = try object("update_todo", ["todo": "Rollout", "project": "RFID"])
+        XCTAssertEqual((withProject["customer"] as? JSONObject)?["name"] as? String, "Inditex")
+        XCTAssertTrue(try call("update_todo", ["todo": "Rollout", "customer": ""]).isError,
+                      "the project decides the customer")
+        let sub = try object("create_todo", ["title": "Sub", "parent": "Rollout"])
+        XCTAssertEqual((sub["customer"] as? JSONObject)?["name"] as? String, "Inditex")
+    }
+
     func test_catalogCreateUpdateAndBillableRecache() throws {
         _ = try object("create_customer", ["name": "Acme", "email_domains": "acme.com"])
         XCTAssertTrue(try call("create_customer", ["name": "acme"]).isError, "duplicate names are refused")

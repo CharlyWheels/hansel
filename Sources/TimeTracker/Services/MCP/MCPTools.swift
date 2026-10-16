@@ -109,6 +109,7 @@ final class MCPTools {
 
     nonisolated static let dateHint = "ISO 8601, e.g. 2026-10-09T14:30 (local time when no offset) or 2026-10-09."
     nonisolated static let clearHint = "Pass an empty string to clear it."
+    nonisolated static let aliasesHint = "Comma-separated other names the customer goes by: email domains (acme.com), abbreviations (ITX), Slack channels (#acme-rollout) and contacts (jane@acme.com)."
 
     // MARK: - Lookups
 
@@ -262,7 +263,9 @@ final class MCPTools {
             "id": customer.id.uuidString,
             "name": customer.name,
             "default_billable": customer.defaultBillable,
-            "email_domains": customer.emailDomains,
+            "aliases": CustomerMatcher.aliases(of: customer).map { ["kind": $0.kind.rawValue, "value": $0.value] },
+            "email_domains": CustomerMatcher.domains(of: customer).joined(separator: ", "),
+            "excluded_from_context": customer.excludedFromContext,
             "projects": customer.projects.map(\.name).sorted(),
         ]
     }
@@ -281,6 +284,8 @@ final class MCPTools {
             "completed_at": Self.value(todo.completedAt),
             "due": Self.value(todo.dueAt),
             "project": Self.ref(todo.relatedProject?.id, todo.relatedProject?.name),
+            // A subtask's is its top-level todo's.
+            "customer": Self.ref(todo.effectiveCustomer?.id, todo.effectiveCustomer?.name),
             "notes": Self.value(todo.notes),
             "subtask_count": todo.subtasks.count,
         ]

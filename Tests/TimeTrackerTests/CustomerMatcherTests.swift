@@ -5,7 +5,7 @@ final class CustomerMatcherTests: XCTestCase {
 
     private func customer(_ name: String, _ domains: String) -> Customer {
         let c = Customer(name: name)
-        c.emailDomains = domains
+        c.aliases = domains
         return c
     }
 

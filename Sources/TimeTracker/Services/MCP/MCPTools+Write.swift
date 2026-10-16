@@ -57,7 +57,8 @@ extension MCPTools {
                     "notes": Self.string("Details."),
                     "due": Self.string("Due date. " + Self.dateHint),
                     "parent": Self.string("Parent todo id or title, to add a subtask."),
-                    "project": Self.string("Related project id or name."),
+                    "project": Self.string("Related project id or name. Its customer becomes the todo's customer."),
+                    "customer": Self.string("Customer id or name the work is for. Top-level todos only: subtasks take their root's customer."),
                 ],
                 required: ["title"], readOnly: false
             ) { [unowned self] args in try createTodo(args) },
@@ -70,7 +71,8 @@ extension MCPTools {
                     "title": Self.string("New title."),
                     "notes": Self.string("Details. " + Self.clearHint),
                     "due": Self.string("Due date. " + Self.dateHint + " " + Self.clearHint),
-                    "project": Self.string("Related project id or name. " + Self.clearHint),
+                    "project": Self.string("Related project id or name; its customer becomes the todo's customer. " + Self.clearHint),
+                    "customer": Self.string("Customer id or name the work is for. Top-level todos only. " + Self.clearHint),
                     "parent": Self.string("Move under this todo (id or title). Empty string moves it to the top level."),
                     "completed": Self.boolean("true to complete it, false to reopen it."),
                 ],
@@ -104,23 +106,27 @@ extension MCPTools {
 
             Tool(
                 name: "create_customer", title: "Create customer",
-                description: "Adds a customer.",
+                description: "Adds a customer. The customer list is closed: a name or alias another customer already goes by is refused, naming that customer, so check list_customers first.",
                 properties: [
                     "name": Self.string("Customer name."),
                     "default_billable": Self.boolean("Whether their time is billable (default true)."),
-                    "email_domains": Self.string("Comma-separated email domains, to recognise their meetings."),
+                    "aliases": Self.string(Self.aliasesHint),
+                    "email_domains": Self.string("Comma-separated email domains (added to the aliases)."),
+                    "excluded_from_context": Self.boolean("true keeps this customer's todos, meetings and messages out of AI context (e.g. personal matters)."),
                 ],
                 required: ["name"], readOnly: false
             ) { [unowned self] args in try createCustomer(args) },
 
             Tool(
                 name: "update_customer", title: "Update customer",
-                description: "Renames a customer or changes its billable default or email domains.",
+                description: "Renames a customer or changes its billable default, aliases or whether it is kept out of AI context. A name or alias another customer already goes by is refused.",
                 properties: [
                     "customer": Self.string("The customer's id or name."),
                     "name": Self.string("New name."),
                     "default_billable": Self.boolean("Whether their time is billable."),
-                    "email_domains": Self.string("Comma-separated email domains."),
+                    "aliases": Self.string("Replaces all aliases. " + Self.aliasesHint + " " + Self.clearHint),
+                    "email_domains": Self.string("Replaces only the email-domain aliases, keeping the others. Comma-separated."),
+                    "excluded_from_context": Self.boolean("true keeps this customer's todos, meetings and messages out of AI context."),
                 ],
                 required: ["customer"], readOnly: false
             ) { [unowned self] args in try updateCustomer(args) },
@@ -292,11 +298,25 @@ extension MCPTools {
         let title = try args.requiredString("title")
         let parent = try optional(args, "parent", self.todo)
         let project = try optional(args, "project", self.project)
+        let customer = try optional(args, "customer", self.customer)
+        try checkTodoCustomer(customer, isRoot: parent == nil, project: project)
         let notes = try args.string("notes").flatMap { $0.isEmpty ? nil : $0 }
         guard let todo = HanselActions.addTodo(
-            title: title, notes: notes, dueAt: try args.date("due"), parent: parent, project: project, context: context
+            title: title, notes: notes, dueAt: try args.date("due"), parent: parent, project: project,
+            customer: customer, context: context
         ) else { throw ToolError("title is required.") }
         return json(todo)
+    }
+
+    /// A customer belongs on a top-level todo, and must be its project's customer.
+    private func checkTodoCustomer(_ customer: Customer?, isRoot: Bool, project: Project?) throws {
+        guard let customer else { return }
+        guard isRoot else {
+            throw ToolError("Subtasks take their top-level todo's customer; set the customer on that todo instead.")
+        }
+        if let owner = project?.customer, owner.id != customer.id {
+            throw ToolError("The project \"\(project?.name ?? "")\" belongs to the customer \"\(owner.name)\", not \"\(customer.name)\".")
+        }
     }
 
     private func updateTodo(_ args: MCPArguments) throws -> JSONObject {
@@ -306,17 +326,28 @@ extension MCPTools {
         let notes = try args.string("notes")
         let due: Date?? = args.has("due") ? .some(try args.date("due")) : .none
         let project = try change(args, "project", self.project)
+        let customer = try change(args, "customer", self.customer)
         let parent = try change(args, "parent", self.todo)
         if let newParent = parent?.value, todo.contains(newParent) {
             throw ToolError("A todo cannot move under itself or one of its subtasks.")
+        }
+        let willBeRoot = parent.map { $0.value == nil } ?? (todo.parent == nil)
+        let finalProject = project.map(\.value) ?? todo.relatedProject
+        if let customer {
+            if let chosen = customer.value {
+                try checkTodoCustomer(chosen, isRoot: willBeRoot, project: finalProject)
+            } else if let owner = finalProject?.customer {
+                throw ToolError("Its project belongs to the customer \"\(owner.name)\"; change or clear the project to change the customer.")
+            }
         }
         let completed = try args.bool("completed")
 
         if let title { todo.title = title }
         if let notes { todo.notes = notes.isEmpty ? nil : notes }
         if let due { todo.dueAt = due }
-        if let project { todo.relatedProject = project.value }
         if let parent { HanselActions.moveTodo(todo, under: parent.value, context: context) }
+        if let project { HanselActions.setTodoProject(todo, project.value, context: context) }
+        if let customer { HanselActions.setTodoCustomer(todo, customer.value, context: context) }
         if let completed, completed != todo.isCompleted {
             HanselActions.setCompleted(todo, completed, context: context)
         } else {
@@ -361,14 +392,17 @@ extension MCPTools {
 
     private func createCustomer(_ args: MCPArguments) throws -> JSONObject {
         let name = try args.requiredString("name")
-        try checkUnique(name, among: fetchAll(Customer.self).map(\.name), kind: "customer")
+        let aliases = [try args.string("aliases"), try args.string("email_domains")]
+            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
+        if let conflict = HanselActions.customerConflict(name: name, aliases: aliases, context: context) {
+            throw ToolError(conflict.message)
+        }
         guard let customer = HanselActions.addCustomer(
             name: name, defaultBillable: try args.bool("default_billable") ?? true, context: context
         ) else { throw ToolError("name is required.") }
-        if let domains = try args.string("email_domains") {
-            customer.emailDomains = domains
-            try? context.save()
-        }
+        customer.aliases = aliases
+        customer.excludedFromContext = try args.bool("excluded_from_context") ?? false
+        try? context.save()
         return json(customer)
     }
 
@@ -376,10 +410,24 @@ extension MCPTools {
         let customer = try self.customer(try args.requiredString("customer"))
         if let name = try args.string("name") {
             guard !name.isEmpty else { throw ToolError("name cannot be empty.") }
-            try checkUnique(name, among: fetchAll(Customer.self).filter { $0.id != customer.id }.map(\.name), kind: "customer")
+            if let conflict = HanselActions.customerConflict(name: name, excluding: customer, context: context) {
+                throw ToolError(conflict.message)
+            }
             customer.name = name
         }
-        if let domains = try args.string("email_domains") { customer.emailDomains = domains }
+        var aliases = try args.string("aliases") ?? customer.aliases
+        if let domains = try args.string("email_domains") {
+            let kept = aliases.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { CustomerMatcher.alias($0).map { $0.kind != .domain } ?? false }
+            aliases = (kept + [domains]).filter { !$0.isEmpty }.joined(separator: ", ")
+        }
+        if aliases != customer.aliases {
+            if let conflict = HanselActions.customerConflict(aliases: aliases, excluding: customer, context: context) {
+                throw ToolError(conflict.message)
+            }
+            customer.aliases = aliases
+        }
+        if let excluded = try args.bool("excluded_from_context") { customer.excludedFromContext = excluded }
         try? context.save()
         if let billable = try args.bool("default_billable"), billable != customer.defaultBillable {
             customer.defaultBillable = billable

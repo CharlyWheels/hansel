@@ -79,6 +79,10 @@ final class ProposalService {
         let project = projectID.flatMap { id in
             try? modelContext.fetch(FetchDescriptor<Project>(predicate: #Predicate { $0.id == id })).first
         }
+        let customerID = proposal.customerID
+        let customer = customerID.flatMap { id in
+            try? modelContext.fetch(FetchDescriptor<Customer>(predicate: #Predicate { $0.id == id })).first
+        }
         let roots = ((try? modelContext.fetch(FetchDescriptor<Todo>())) ?? []).filter { $0.parent == nil }
         let todo = Todo(
             title: proposal.title.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -88,6 +92,7 @@ final class ProposalService {
             relatedProject: project
         )
         modelContext.insert(todo)
+        todo.customer = project?.customer ?? customer
         proposal.status = .accepted
         proposal.resolvedAt = now
         proposal.acceptedTodoID = todo.id

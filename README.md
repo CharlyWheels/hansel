@@ -212,6 +212,9 @@ on the Acme website", "add a todo to send the deck", "stop the timer".
   `create_todo`, `update_todo`, `create_project`, `update_project`, `create_customer`,
   `update_customer`, `create_role`, `update_role`, `rename_meeting`,
   `accept_todo_proposal`, `decline_todo_proposal`.
+- Todos carry their customer; `create_todo` / `update_todo` take one for top-level todos.
+  `create_customer` / `update_customer` take `aliases` and `excluded_from_context`, and
+  refuse a name or alias another customer already goes by.
 - Projects, customers, roles and todos can be named instead of given by id; an ambiguous
   name is refused with the candidates. Times are ISO 8601, local time without an offset.
 - Entries that would overlap another entry, or end in the future, are refused rather
@@ -226,6 +229,23 @@ on the Acme website", "add a todo to send the deck", "stop the timer".
 - What an assistant reads is sent to its own AI provider, like anything else you show it.
 - ChatGPT's web and mobile apps only connect to servers on the internet, so they are not
   supported.
+
+## Customers, aliases and todos
+
+Every todo works for a customer from a closed list. The customer is set on top-level
+todos; subtasks work for their root's customer. A project with a customer decides it, so
+the two never disagree. Open todos without one show a **No customer** chip in Todos. For
+work that is no customer's, create an internal customer such as "Internal".
+
+A customer's **aliases** are the other names it goes by, comma-separated: email domains
+(`acme.com`), abbreviations (`ITX`), Slack channels (`#acme-rollout`) and contacts
+(`jane@acme.com`). Meetings with people from its domains are attributed to it. A new
+customer, or an alias, that another customer already goes by is refused ("Inditex",
+"inditex" and an existing alias "ITX" are the same customer), so the list has no
+duplicates.
+
+**Keep out of AI context** on a customer (e.g. "Personal") keeps its todos, meetings and
+messages out of everything gathered as context for AI assistants.
 
 ## Settings worth knowing
 

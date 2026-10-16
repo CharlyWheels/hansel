@@ -19,6 +19,10 @@ final class Todo {
 
     var relatedProject: Project?
 
+    /// Who the work is for. Set on top-level todos only; subtasks take their root's
+    /// (see `effectiveCustomer`). A project with a customer decides it.
+    var customer: Customer?
+
     // Inverses with `.nullify`, so deleting this leaves past entries in place with
     // the link cleared, instead of dangling references to a deleted model.
     @Relationship(deleteRule: .nullify, inverse: \TimeEntry.linkedTodo)
@@ -70,6 +74,34 @@ extension Todo {
 }
 
 extension Todo {
+    /// The top-level todo this one is part of (itself when it has no parent).
+    var root: Todo {
+        var node = self
+        while let p = node.parent { node = p }
+        return node
+    }
+
+    /// First project found by walking the parent chain (including self).
+    /// Subtasks inherit the project of their nearest ancestor when they don't
+    /// have their own `relatedProject` set.
+    var inheritedProject: Project? {
+        var node: Todo? = self
+        while let n = node {
+            if let p = n.relatedProject { return p }
+            node = n.parent
+        }
+        return nil
+    }
+
+    /// The customer the work is for: the root's project's customer, else the one set
+    /// on the root. A project's customer wins so the two can never disagree.
+    var effectiveCustomer: Customer? {
+        let top = root
+        return top.inheritedProject?.customer ?? top.customer
+    }
+
+    var isExcludedFromContext: Bool { effectiveCustomer?.excludedFromContext == true }
+
     /// Children sorted by sortOrder then createdAt — used by the prompt builder
     /// and tree views so order is stable everywhere.
     var orderedSubtasks: [Todo] {

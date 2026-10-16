@@ -42,7 +42,8 @@ enum HanselActions {
 
     // MARK: - Todos
 
-    /// Adds a todo at the end of its siblings. Nil for an empty title.
+    /// Adds a todo at the end of its siblings. Nil for an empty title. `customer` is
+    /// kept on top-level todos only: a subtask works for its root's customer.
     @discardableResult
     static func addTodo(
         title: String,
@@ -50,6 +51,7 @@ enum HanselActions {
         dueAt: Date? = nil,
         parent: Todo? = nil,
         project: Project? = nil,
+        customer: Customer? = nil,
         context: ModelContext
     ) -> Todo? {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -65,8 +67,25 @@ enum HanselActions {
             relatedProject: project
         )
         context.insert(todo)
+        if parent == nil { todo.customer = project?.customer ?? customer }
         try? context.save()
         return todo
+    }
+
+    /// Sets a top-level todo's customer and project together, so they never disagree:
+    /// a project with a customer decides the customer, and choosing another customer
+    /// drops a project that belongs to someone else.
+    static func setTodoCustomer(_ todo: Todo, _ customer: Customer?, context: ModelContext) {
+        guard todo.parent == nil else { return }
+        if let owner = todo.relatedProject?.customer, owner.id != customer?.id { todo.relatedProject = nil }
+        todo.customer = customer
+        try? context.save()
+    }
+
+    static func setTodoProject(_ todo: Todo, _ project: Project?, context: ModelContext) {
+        todo.relatedProject = project
+        if todo.parent == nil, let owner = project?.customer { todo.customer = owner }
+        try? context.save()
     }
 
     /// Moves a todo under `newParent` (nil: to the top level), at the end of its new
@@ -79,6 +98,13 @@ enum HanselActions {
         let siblings = newParent?.subtasks
             ?? ((try? context.fetch(FetchDescriptor<Todo>())) ?? []).filter { $0.parent == nil }
         todo.sortOrder = (siblings.filter { $0.id != todo.id }.map(\.sortOrder).max() ?? -1) + 1
+        if newParent != nil {
+            // A subtask works for its root's customer.
+            todo.customer = nil
+        } else if todo.customer == nil {
+            // Back at the top level it keeps the customer it worked for until now.
+            todo.customer = todo.effectiveCustomer
+        }
         todo.parent = newParent
         try? context.save()
         return true
@@ -107,14 +133,28 @@ enum HanselActions {
         return project
     }
 
+    /// The customer list is closed: nil, and nothing added, for an empty name or one
+    /// another customer already goes by (`customerConflict`).
     @discardableResult
     static func addCustomer(name: String, defaultBillable: Bool = true, context: ModelContext) -> Customer? {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+        guard !trimmed.isEmpty, customerConflict(name: trimmed, context: context) == nil else { return nil }
         let customer = Customer(name: trimmed, defaultBillable: defaultBillable)
         context.insert(customer)
         try? context.save()
         return customer
+    }
+
+    /// The first of `name` and `aliases` another customer than `excluded` already
+    /// goes by: "Inditex", "inditex" and an existing alias "ITX" are the same customer.
+    static func customerConflict(
+        name: String? = nil,
+        aliases: String? = nil,
+        excluding excluded: Customer? = nil,
+        context: ModelContext
+    ) -> CustomerMatcher.Conflict? {
+        let customers = (try? context.fetch(FetchDescriptor<Customer>())) ?? []
+        return CustomerMatcher.conflict(name: name, aliases: aliases, excluding: excluded, in: customers)
     }
 
     @discardableResult
