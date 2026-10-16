@@ -25,6 +25,25 @@ final class HanselActionsTests: XCTestCase {
         XCTAssertNil(HanselActions.addTodo(title: "   ", context: context))
     }
 
+    func test_moveTodoGoesLastUnderItsNewParentAndRefusesCycles() throws {
+        let parent = try XCTUnwrap(HanselActions.addTodo(title: "Parent", context: context))
+        let existing = try XCTUnwrap(HanselActions.addTodo(title: "Existing", parent: parent, context: context))
+        let dragged = try XCTUnwrap(HanselActions.addTodo(title: "Dragged", context: context))
+        let grandchild = try XCTUnwrap(HanselActions.addTodo(title: "Grandchild", parent: dragged, context: context))
+
+        XCTAssertTrue(HanselActions.moveTodo(dragged, under: parent, context: context))
+        XCTAssertEqual(dragged.parent?.id, parent.id)
+        XCTAssertGreaterThan(dragged.sortOrder, existing.sortOrder)
+
+        XCTAssertFalse(HanselActions.moveTodo(dragged, under: grandchild, context: context))
+        XCTAssertFalse(HanselActions.moveTodo(dragged, under: dragged, context: context))
+        XCTAssertEqual(dragged.parent?.id, parent.id, "a refused move changes nothing")
+
+        XCTAssertTrue(HanselActions.moveTodo(dragged, under: nil, context: context))
+        XCTAssertNil(dragged.parent)
+        XCTAssertGreaterThan(dragged.sortOrder, parent.sortOrder, "back at the top level, last")
+    }
+
     func test_setCompletedStampsAndClearsTheCompletionDate() throws {
         let todo = try XCTUnwrap(HanselActions.addTodo(title: "Ship", context: context))
         HanselActions.setCompleted(todo, true, context: context)

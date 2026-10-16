@@ -34,6 +34,9 @@ struct TodosView: View {
     /// The todos opened on top of the list, so one click can go back to it.
     @State private var path = NavigationPath()
     @State private var deleting: Todo?
+    /// Parents shown open. A drop opens its target, so the moved todo stays in sight.
+    @State private var expanded: Set<UUID> = []
+    @State private var isRootDropTarget = false
 
     private var rootTodos: [Todo] {
         allTodos.filter { $0.parent == nil && (showCompleted || !$0.isCompleted) }
@@ -45,6 +48,11 @@ struct TodosView: View {
                 header
                     .padding([.horizontal, .top], 20)
                     .padding(.bottom, 12)
+                    // Dropping a subtask up here takes it out of its parent.
+                    .background(isRootDropTarget ? Color.accentColor.opacity(0.12) : .clear)
+                    .dropDestination(for: String.self) { ids, _ in
+                        moveDropped(ids, under: nil)
+                    } isTargeted: { isRootDropTarget = $0 }
                 Divider()
                 List {
                     // Inside the list, so it scrolls with it. Above the list it had no
@@ -57,8 +65,10 @@ struct TodosView: View {
                             todo: todo,
                             depth: 0,
                             showCompleted: showCompleted,
+                            expanded: $expanded,
                             onToggle: toggleCompleted,
-                            onDelete: { deleting = $0 }
+                            onDelete: { deleting = $0 },
+                            onMove: moveDropped
                         )
                     }
                     .onDelete { pendingDelete = $0 }
@@ -142,6 +152,19 @@ struct TodosView: View {
 
     private func toggleCompleted(_ todo: Todo) {
         HanselActions.setCompleted(todo, !todo.isCompleted, context: modelContext)
+    }
+
+    /// Moves the dragged todos under `parent`, or to the top level for nil. Ids that
+    /// aren't todos, or a move that would put a todo under itself, are refused.
+    private func moveDropped(_ ids: [String], under parent: Todo?) -> Bool {
+        let dragged = ids.compactMap { id in allTodos.first { $0.id.uuidString == id } }
+        guard !dragged.isEmpty else { return false }
+        var moved = false
+        for todo in dragged where HanselActions.moveTodo(todo, under: parent, context: modelContext) {
+            moved = true
+        }
+        if moved, let parent { expanded.insert(parent.id) }
+        return moved
     }
 
     private func deleteRoots(offsets: IndexSet) {
@@ -244,36 +267,69 @@ private struct TodoRowRecursive: View {
     let todo: Todo
     let depth: Int
     let showCompleted: Bool
+    @Binding var expanded: Set<UUID>
     let onToggle: (Todo) -> Void
     let onDelete: (Todo) -> Void
+    /// Dragged todo ids and where they go; true when something moved.
+    let onMove: ([String], Todo?) -> Bool
 
-    private var deleteMenu: some View {
-        Button("Delete…", role: .destructive) { onDelete(todo) }
+    @State private var isDropTarget = false
+
+    private var menu: some View {
+        Group {
+            if todo.parent != nil {
+                Button("Move to Top Level") { _ = onMove([todo.id.uuidString], nil) }
+            }
+            Button("Delete…", role: .destructive) { onDelete(todo) }
+        }
+    }
+
+    /// Drag a row onto another to make that one its parent.
+    private var row: some View {
+        NavigationLink(value: todo) {
+            TodosView.rowSummary(todo, depth: depth, onToggle: onToggle)
+        }
+        .contextMenu { menu }
+        .draggable(todo.id.uuidString) {
+            Text(todo.title.isEmpty ? "(untitled)" : todo.title)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Theme.cornerRadius))
+        }
+        .dropDestination(for: String.self) { ids, _ in
+            onMove(ids, todo)
+        } isTargeted: { isDropTarget = $0 }
+        .background(
+            RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
+                .fill(isDropTarget ? Color.accentColor.opacity(0.18) : .clear)
+        )
+    }
+
+    private var isExpanded: Binding<Bool> {
+        Binding(
+            get: { expanded.contains(todo.id) },
+            set: { if $0 { expanded.insert(todo.id) } else { expanded.remove(todo.id) } }
+        )
     }
 
     var body: some View {
         let visibleChildren = todo.orderedSubtasks.filter { showCompleted || !$0.isCompleted }
         if visibleChildren.isEmpty {
-            NavigationLink(value: todo) {
-                TodosView.rowSummary(todo, depth: depth, onToggle: onToggle)
-            }
-            .contextMenu { deleteMenu }
+            row
         } else {
-            DisclosureGroup {
+            DisclosureGroup(isExpanded: isExpanded) {
                 ForEach(visibleChildren) { child in
                     TodoRowRecursive(
                         todo: child,
                         depth: depth + 1,
                         showCompleted: showCompleted,
+                        expanded: $expanded,
                         onToggle: onToggle,
-                        onDelete: onDelete
+                        onDelete: onDelete,
+                        onMove: onMove
                     )
                 }
             } label: {
-                NavigationLink(value: todo) {
-                    TodosView.rowSummary(todo, depth: depth, onToggle: onToggle)
-                }
-                .contextMenu { deleteMenu }
+                row
             }
         }
     }

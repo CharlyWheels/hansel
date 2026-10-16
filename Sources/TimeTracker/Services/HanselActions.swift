@@ -69,6 +69,21 @@ enum HanselActions {
         return todo
     }
 
+    /// Moves a todo under `newParent` (nil: to the top level), at the end of its new
+    /// siblings. False, and nothing changes, when `newParent` is the todo itself or
+    /// one of its subtasks, which would make a cycle.
+    @discardableResult
+    static func moveTodo(_ todo: Todo, under newParent: Todo?, context: ModelContext) -> Bool {
+        if let newParent, todo.contains(newParent) { return false }
+        guard newParent?.id != todo.parent?.id else { return true }
+        let siblings = newParent?.subtasks
+            ?? ((try? context.fetch(FetchDescriptor<Todo>())) ?? []).filter { $0.parent == nil }
+        todo.sortOrder = (siblings.filter { $0.id != todo.id }.map(\.sortOrder).max() ?? -1) + 1
+        todo.parent = newParent
+        try? context.save()
+        return true
+    }
+
     static func setCompleted(_ todo: Todo, _ completed: Bool, context: ModelContext, now: Date = Date()) {
         todo.isCompleted = completed
         todo.completedAt = completed ? now : nil

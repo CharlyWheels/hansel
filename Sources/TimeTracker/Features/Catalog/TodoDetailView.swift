@@ -168,10 +168,7 @@ struct TodoDetailView: View {
     private var parentBinding: Binding<Todo?> {
         Binding(
             get: { todo.parent },
-            set: { newParent in
-                todo.parent = newParent
-                try? modelContext.save()
-            }
+            set: { HanselActions.moveTodo(todo, under: $0, context: modelContext) }
         )
     }
 

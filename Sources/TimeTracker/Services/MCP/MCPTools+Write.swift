@@ -316,11 +316,7 @@ extension MCPTools {
         if let notes { todo.notes = notes.isEmpty ? nil : notes }
         if let due { todo.dueAt = due }
         if let project { todo.relatedProject = project.value }
-        if let parent, parent.value?.id != todo.parent?.id {
-            let siblings = parent.value?.subtasks ?? fetchAll(Todo.self).filter { $0.parent == nil }
-            todo.sortOrder = (siblings.filter { $0.id != todo.id }.map(\.sortOrder).max() ?? -1) + 1
-            todo.parent = parent.value
-        }
+        if let parent { HanselActions.moveTodo(todo, under: parent.value, context: context) }
         if let completed, completed != todo.isCompleted {
             HanselActions.setCompleted(todo, completed, context: context)
         } else {
