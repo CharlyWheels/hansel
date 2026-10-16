@@ -298,6 +298,9 @@ customer when no todo fits. These items are what the todos' dossiers will be wri
   - Customers kept out of AI context have none.
 - **Schedule.** `scripts/context-ingest/install.sh` runs the collection every 3 hours
   through launchd, and a run missed while the Mac slept happens on wake.
+  - The installer copies the scripts to `~/Library/Application Support/TimeTracker/context-ingest/`
+    and runs them from there, because launchd may not read `~/Documents`. Run it again
+    after changing the prompt.
   - `INTERVAL_HOURS=6 scripts/context-ingest/install.sh` changes the interval.
   - `scripts/context-ingest/install.sh uninstall` removes it.
   - Logs are written to `~/Library/Logs/TimeTracker/context-ingest-*.log`.
