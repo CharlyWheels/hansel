@@ -1,15 +1,27 @@
 #!/bin/zsh
 # Collects work context from Slack, email, Teams, the calendar, Confluence and GitHub
 # with Codex (the agent that has those connectors) and sends it to Hansel over MCP.
-# Run by launchd (see install.sh) every few hours; safe to run by hand.
+#
+#   run.sh                    everything new since the last run (launchd, every few hours)
+#   run.sh --todos ID[,ID…]   everything about these todos, however old (Hansel's
+#                             "Gather context" button); moves no collection cursor
+#
+# Exit codes: 0 done (or Hansel not running), 75 another run is in progress, else failed.
 set -u
 
 SCRIPT_DIR=${0:A:h}
 LOG_DIR="$HOME/Library/Logs/TimeTracker"
 LOG="$LOG_DIR/context-ingest-$(date +%F).log"
-LOCK="${TMPDIR:-/tmp}/hansel-context-ingest.lock"
 CODEX="${CODEX:-/Applications/Codex.app/Contents/Resources/codex-cli/bin/codex}"
 WORKDIR="$HOME/Library/Application Support/TimeTracker/context-ingest"
+# In WORKDIR rather than $TMPDIR, which launchd and the app do not share.
+LOCK="$WORKDIR/run.lock"
+
+TODOS=""
+if [[ "${1:-}" == "--todos" ]]; then
+  TODOS="${2:-}"
+  if [[ ! "$TODOS" =~ '^[0-9A-Fa-f,-]+$' ]]; then print -u2 "usage: run.sh [--todos ID[,ID…]]"; exit 64; fi
+fi
 
 mkdir -p "$LOG_DIR" "$WORKDIR"
 log() { print -r -- "$(date '+%F %T') $*" >> "$LOG"; }
@@ -29,23 +41,33 @@ if ! mkdir "$LOCK" 2>/dev/null; then
     rm -rf "$LOCK" && mkdir "$LOCK"
   else
     log "skip: another run is in progress"
-    exit 0
+    exit 75
   fi
 fi
 trap 'rm -rf "$LOCK"' EXIT
 
-log "start"
+if [[ -n "$TODOS" ]]; then
+  log "start todos=$TODOS"
+  PROMPT=$(sed "s/{{TODOS}}/$TODOS/g" "$SCRIPT_DIR/prompt-todos.md")
+  REPORT="$WORKDIR/last-todos-report.txt"
+else
+  log "start"
+  PROMPT=$(cat "$SCRIPT_DIR/prompt.md")
+  REPORT="$WORKDIR/last-report.txt"
+fi
+rm -f "$REPORT"
+
 # Read-only sandbox: Codex needs no shell or file access, only its connectors and the
 # Hansel MCP server. Approvals cannot be answered unattended, so none are asked.
-"$CODEX" exec \
+print -r -- "$PROMPT" | "$CODEX" exec \
   --skip-git-repo-check \
   --ephemeral \
   --cd "$WORKDIR" \
   --sandbox read-only \
   -c approval_policy='"never"' \
-  --output-last-message "$WORKDIR/last-report.txt" \
-  - < "$SCRIPT_DIR/prompt.md" >> "$LOG" 2>&1
+  --output-last-message "$REPORT" \
+  - >> "$LOG" 2>&1
 exit_code=$?
 log "end status=$exit_code"
-[[ -f "$WORKDIR/last-report.txt" ]] && { print -r -- "--- report ---"; cat "$WORKDIR/last-report.txt"; print; } >> "$LOG"
+[[ -f "$REPORT" ]] && { print -r -- "--- report ---"; cat "$REPORT"; print; } >> "$LOG"
 exit $exit_code

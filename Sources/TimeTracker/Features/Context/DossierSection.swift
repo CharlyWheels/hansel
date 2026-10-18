@@ -1,10 +1,15 @@
 import SwiftUI
 
-/// A todo's or customer's dossier: read it as written, or edit it. The next rewrite
-/// starts from the edited text, so a correction made here is kept.
+/// A Markdown page kept on a todo or customer — its dossier or its brief: read it as
+/// written, or edit it. Agents start from the edited text, so a correction made here is kept.
 struct DossierSection: View {
     @Binding var dossier: String
     let updatedAt: Date?
+    var title = "Dossier"
+    var emptyText = "No dossier yet. It is written from this item's meetings, messages, emails and pages on the next context collection."
+    var template: String = DossierSection.emptyTemplate
+    /// A line under the title, e.g. the brief's progress.
+    var caption: String? = nil
     /// Called after the user saved an edit.
     let onSave: () -> Void
 
@@ -28,8 +33,7 @@ struct DossierSection: View {
                     .buttonStyle(.borderedProminent)
                 }
             } else if dossier.isEmpty {
-                Text("No dossier yet. It is written from this item's meetings, messages, emails and pages on the next context collection.")
-                    .font(.callout).foregroundStyle(.secondary)
+                Text(emptyText).font(.callout).foregroundStyle(.secondary)
             } else {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(Self.blocks(dossier).enumerated()), id: \.offset) { _, block in
@@ -37,14 +41,15 @@ struct DossierSection: View {
                         case let .heading(text):
                             Text(text).font(.headline).padding(.top, 6)
                         case let .line(text):
-                            Text(Self.inline(text)).font(.callout).textSelection(.enabled)
+                            Text(Self.inline(Self.checkbox(text))).font(.callout).textSelection(.enabled)
                         }
                     }
                 }
             }
         } header: {
             HStack {
-                Text("Dossier")
+                Text(title)
+                if let caption { Text(caption).font(.caption).foregroundStyle(.secondary) }
                 Spacer()
                 if let updatedAt, !editing {
                     Text("Updated \(updatedAt.formatted(.relative(presentation: .named)))")
@@ -52,7 +57,7 @@ struct DossierSection: View {
                 }
                 if !editing {
                     Button(dossier.isEmpty ? "Write" : "Edit") {
-                        draft = dossier.isEmpty ? Self.emptyTemplate : dossier
+                        draft = dossier.isEmpty ? template : dossier
                         editing = true
                     }
                     .buttonStyle(.borderless)
@@ -81,7 +86,24 @@ struct DossierSection: View {
             ?? AttributedString(text)
     }
 
+    /// "[ ] step" and "[x] step" as ballot boxes.
+    static func checkbox(_ line: String) -> String {
+        if line.hasPrefix("•  [ ] ") { return "☐ " + line.dropFirst(7) }
+        if line.lowercased().hasPrefix("•  [x] ") { return "☑ " + line.dropFirst(7) }
+        return line
+    }
+
     static var emptyTemplate: String {
         DossierService.sections.map { "\($0)\n" }.joined(separator: "\n")
     }
+}
+
+/// "2 of 5 steps · 1 needs your OK", or nil without a plan.
+@MainActor
+func briefProgress(_ todo: Todo) -> String? {
+    let steps = TaskBrief.steps(in: todo.brief)
+    guard !steps.isEmpty else { return nil }
+    let waiting = steps.filter { $0.needsApproval && !$0.done }.count
+    let done = "\(steps.filter(\.done).count) of \(steps.count) steps"
+    return waiting > 0 ? done + " · \(waiting) need\(waiting == 1 ? "s" : "") your OK" : done
 }

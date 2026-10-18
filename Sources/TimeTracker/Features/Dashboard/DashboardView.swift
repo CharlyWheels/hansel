@@ -16,10 +16,14 @@ struct DashboardView: View {
     @Query(sort: [SortDescriptor(\Todo.sortOrder), SortDescriptor(\Todo.createdAt)])
     private var allTodos: [Todo]
     @Query(TodoProposal.pendingDescriptor) private var proposals: [TodoProposal]
+    @Query(sort: [SortDescriptor(\ContextItem.occurredAt, order: .reverse)]) private var contextItems: [ContextItem]
+    @Query private var customers: [Customer]
+    @Environment(ContextRunner.self) private var runner
 
     @State private var editingEntry: TimeEntry?
 
     private var openTodos: [Todo] { allTodos.filter { !$0.isCompleted && $0.parent == nil } }
+    private var inbox: [ContextItem] { contextItems.filter { $0.status == .unassigned } }
     private var completedThisWeek: Int {
         let weekStart = Calendar.current.dateInterval(of: .weekOfYear, for: Date())?.start ?? Date()
         return allTodos.filter { $0.isCompleted && ($0.completedAt ?? .distantPast) >= weekStart }.count
@@ -34,10 +38,12 @@ struct DashboardView: View {
                 HStack(alignment: .top, spacing: Theme.spacing) {
                     VStack(spacing: Theme.spacing) {
                         topThisWeek
+                        latestContextCard
                     }
                     .frame(maxWidth: .infinity)
                     VStack(spacing: Theme.spacing) {
                         if !proposals.isEmpty { proposalsCard }
+                        if !inbox.isEmpty { contextInboxCard }
                         todosCard
                     }
                     .frame(maxWidth: .infinity)
@@ -185,33 +191,135 @@ struct DashboardView: View {
         }
     }
 
+    /// Each open todo with its customer and the next step its dossier names, so the day
+    /// can start from what to do rather than from a list of titles.
     private var todosCard: some View {
         Card {
-            VStack(alignment: .leading, spacing: 8) {
-                SectionHeader("Open todos", systemImage: "checklist") {
+            VStack(alignment: .leading, spacing: 10) {
+                SectionHeader("Open todos · next steps", systemImage: "checklist") {
                     Button("All") { router.selection = .todos }.buttonStyle(.link).font(.caption)
                 }
                 if openTodos.isEmpty {
                     Text("Nothing open. Add one from the menu bar.").foregroundStyle(.secondary).font(.callout)
                 } else {
                     ForEach(openTodos.prefix(6)) { todo in
-                        HStack(spacing: 8) {
-                            Button {
-                                todo.isCompleted = true
-                                todo.completedAt = Date()
-                                try? modelContext.save()
-                            } label: { Image(systemName: "circle").foregroundStyle(.secondary) }
-                            .buttonStyle(.borderless)
-                            .help("Mark done")
-                            Text(todo.title.isEmpty ? "(untitled)" : todo.title)
-                                .lineLimit(1)
-                                .foregroundStyle(todo.inheritedDisplayColor ?? .primary)
-                            Spacer()
-                            if let project = todo.inheritedProject {
-                                Chip(text: project.name, color: project.displayColor)
-                            }
+                        todoRow(todo)
+                        if todo.id != openTodos.prefix(6).last?.id { Divider() }
+                    }
+                }
+            }
+        }
+    }
+
+    private func todoRow(_ todo: Todo) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Button {
+                todo.isCompleted = true
+                todo.completedAt = Date()
+                try? modelContext.save()
+            } label: { Image(systemName: "circle").foregroundStyle(.secondary) }
+            .buttonStyle(.borderless)
+            .help("Mark done")
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(todo.title.isEmpty ? "(untitled)" : todo.title)
+                        .lineLimit(1)
+                        .foregroundStyle(todo.inheritedDisplayColor ?? .primary)
+                    Spacer()
+                    if let customer = todo.effectiveCustomer { Chip(text: customer.name, systemImage: "building.2") }
+                    DueDateBadge(todo: todo)
+                }
+                if todo.isExcludedFromContext {
+                    EmptyView()
+                } else if let step = ContextInsights.nextSteps(in: todo.dossier, limit: 1).first {
+                    Button { router.openContext(.todo(todo.id)) } label: {
+                        Label(step, systemImage: "arrow.turn.down.right")
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open its context")
+                } else if todo.dossier.isEmpty {
+                    HStack(spacing: 6) {
+                        Text("No context yet.").font(.caption).foregroundStyle(.tertiary)
+                        GatherButton(todo: todo).controlSize(.small).buttonStyle(.link)
+                    }
+                }
+            }
+        }
+        .font(.callout)
+    }
+
+    // MARK: - Context
+
+    private var contextInboxCard: some View {
+        Card(tint: .orange) {
+            VStack(alignment: .leading, spacing: 8) {
+                SectionHeader("Context to place", systemImage: "tray") {
+                    Text("\(inbox.count)").font(.callout.weight(.semibold))
+                }
+                ForEach(inbox.prefix(3)) { item in
+                    Label {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(item.title).font(.callout).lineLimit(1)
+                            Text(item.reason).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
-                        .font(.callout)
+                    } icon: { Image(systemName: item.source.systemImage).foregroundStyle(.secondary) }
+                }
+                Button("Review in Context") { router.openContext(.inbox) }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            }
+        }
+    }
+
+    /// The newest meetings, threads, emails and pages, with what they belong to.
+    private var latestContextCard: some View {
+        let hidden = Set(customers.filter(\.excludedFromContext).map(\.id))
+        let todoByID = Dictionary(allTodos.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let recent = contextItems
+            .filter { $0.status == .assigned && !($0.customerID.map(hidden.contains) ?? false) }
+            .prefix(6)
+        let lastCollected = contextItems.filter { $0.source != .meeting }.map(\.createdAt).max()
+        return Card {
+            VStack(alignment: .leading, spacing: 8) {
+                SectionHeader("Latest context", systemImage: "tray.full") {
+                    HStack(spacing: 8) {
+                        if runner.isRunning {
+                            ProgressView().controlSize(.small)
+                        } else if let lastCollected {
+                            Text("collected \(lastCollected.formatted(.relative(presentation: .named)))")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Button("Collect now") { runner.collectEverything() }
+                            .buttonStyle(.link).font(.caption)
+                            .disabled(runner.isRunning)
+                    }
+                }
+                if recent.isEmpty {
+                    Text("Nothing collected yet. Meetings appear here once finished, and the rest after a collection.")
+                        .foregroundStyle(.secondary).font(.callout)
+                } else {
+                    ForEach(Array(recent)) { item in
+                        let todo = item.todoID.flatMap { todoByID[$0] }
+                        Button {
+                            router.openContext(todo.map { .todo($0.root.id) } ?? item.customerID.map { .customer($0) } ?? .inbox)
+                        } label: {
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: item.source.systemImage).foregroundStyle(.secondary).frame(width: 16)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(item.title).lineLimit(1)
+                                    Text(todo?.root.title ?? customers.first { $0.id == item.customerID }?.name ?? "")
+                                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                                Spacer()
+                                Text(item.occurredAt.formatted(.relative(presentation: .named)))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            .font(.callout)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }

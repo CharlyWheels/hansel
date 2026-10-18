@@ -259,4 +259,72 @@ final class ContextTests: XCTestCase {
                              "personal todos get none")
         XCTAssertFalse(DossierService.pendingWork(context: context).contains { $0.id == visa.id })
     }
+
+    // MARK: - Insights
+
+    func test_nextStepsComeFromTheirSection() {
+        let dossier = """
+        ## Summary
+        - not a step
+        ## Next steps
+        - Confirm scope — Carlos — 2026-10-20
+        * Send EPCs
+        ## Sources
+        - link
+        """
+        XCTAssertEqual(ContextInsights.nextSteps(in: dossier), ["Confirm scope — Carlos — 2026-10-20", "Send EPCs"])
+        XCTAssertEqual(ContextInsights.nextSteps(in: "## Next steps\n- None."), [])
+    }
+
+    func test_reportComparesTrackedTimeWithWhatHappened() throws {
+        let interval = DateInterval(start: Date().addingTimeInterval(-7 * 86_400), end: Date().addingTimeInterval(600))
+        let project = try XCTUnwrap(HanselActions.addProject(name: "Clustag", customer: lulu, context: context))
+        HanselActions.setTodoProject(demo, project, context: context)
+        context.insert(TimeEntry(title: "Call", startAt: Date().addingTimeInterval(-7200), endAt: Date().addingTimeInterval(-3600),
+                                 project: project, customer: lulu))
+        context.insert(TimeEntry(title: "Holiday plan", startAt: Date().addingTimeInterval(-3600), endAt: Date(),
+                                 customer: personal))
+        service.ingest([incoming("x1", participants: ["a@lululemon.com"]),
+                        incoming("x2", participants: ["b@alvaromoreno.es"]),
+                        incoming("x3", title: "Unsure")])
+        let entries = (try? context.fetch(FetchDescriptor<TimeEntry>())) ?? []
+        let report = ContextInsights.report(items: allItems(), todos: catalog.todos, customers: catalog.customers,
+                                            entries: entries, interval: interval)
+        XCTAssertEqual(report.customers.map(\.name), ["Lululemon", "Alvaro Moreno"], "most tracked first; Personal left out")
+        XCTAssertEqual(report.customers.first?.trackedSeconds, 3600)
+        XCTAssertEqual(report.customers.last?.items, 1)
+        XCTAssertEqual(report.todos.first?.path, "Demo Clustag", "the project's unclaimed time counts for its todo")
+        XCTAssertEqual(report.todos.first?.trackedSeconds, 3600)
+        XCTAssertEqual(report.collected, 3)
+        XCTAssertEqual(report.placedAutomatically, 2)
+        XCTAssertEqual(report.waiting, 1)
+    }
+
+    // MARK: - Briefs
+
+    func test_briefNeedsItsSectionsAndAPlanAndCountsSteps() throws {
+        XCTAssertNotNil(TaskBrief.problem("## Goal\nx"))
+        XCTAssertNotNil(TaskBrief.problem(TaskBrief.sections.joined(separator: "\nx\n")), "a plan without steps")
+        let brief = """
+        ## Goal
+        Demo ready.
+        ## Deliverable
+        Working demo.
+        ## Done when
+        - Clustag confirms
+        ## Constraints
+        - No Lululemon data without written OK
+        ## Plan
+        - [x] Send integration guide (auto)
+        - [ ] Email Ferran and Toni (ask)
+        - [ ] Prepare mock item master (auto)
+        """
+        XCTAssertNil(TaskBrief.problem(brief))
+        let steps = TaskBrief.steps(in: brief)
+        XCTAssertEqual(steps.map(\.done), [true, false, false])
+        XCTAssertEqual(steps.map(\.needsApproval), [false, true, false])
+        try TaskBrief.save(demo, markdown: brief, context: context)
+        XCTAssertEqual(briefProgress(demo), "1 of 3 steps · 1 needs your OK")
+        XCTAssertThrowsError(try TaskBrief.save(visa, markdown: brief, context: context), "personal todos get none")
+    }
 }

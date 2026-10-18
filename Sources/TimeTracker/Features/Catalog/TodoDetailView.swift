@@ -13,6 +13,7 @@ struct TodoDetailView: View {
     @State private var newSubtaskTitle: String = ""
     @State private var deleting: Todo?
     @Environment(\.dismiss) private var dismiss
+    @Environment(MainWindowRouter.self) private var router
 
     private var parentCandidates: [Todo] {
         // `todo.contains` already returns true for self and descendants, so excluding
@@ -91,9 +92,25 @@ struct TodoDetailView: View {
                         .font(.callout).foregroundStyle(.secondary)
                 }
             } else {
+                DossierSection(
+                    dossier: $todo.brief, updatedAt: todo.briefUpdatedAt, title: "Brief",
+                    emptyText: "No brief yet. Ask an agent to work on this todo and it drafts one, or write it yourself: goal, deliverable, when it is done, constraints and plan.",
+                    template: TaskBrief.template, caption: briefProgress(todo)
+                ) {
+                    todo.briefUpdatedAt = Date()
+                    try? modelContext.save()
+                }
                 DossierSection(dossier: $todo.dossier, updatedAt: todo.dossierUpdatedAt) {
                     todo.dossierUpdatedAt = Date()
                     try? modelContext.save()
+                }
+                Section {
+                    HStack {
+                        Button("Open in Context") { router.openContext(.todo(todo.id)) }
+                            .buttonStyle(.link)
+                        Spacer()
+                        GatherButton(todo: todo)
+                    }
                 }
             }
 

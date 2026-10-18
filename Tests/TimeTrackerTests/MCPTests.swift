@@ -377,6 +377,22 @@ final class MCPTests: XCTestCase {
         try XCTUnwrap(fetchTodo(title)).id.uuidString
     }
 
+    func test_briefAndAutonomyPolicyReachTheAgent() throws {
+        _ = try object("create_todo", ["title": "Demo"])
+        let empty = try object("get_task_context", ["todo": "Demo"])
+        XCTAssertTrue(empty["brief"] is NSNull)
+        XCTAssertEqual(empty["autonomy_policy"] as? String, AutonomyPolicy.current)
+
+        XCTAssertTrue(try call("update_task_brief", ["todo": "Demo", "brief": "## Goal\nx"]).isError)
+        let brief = TaskBrief.sections.dropLast().map { "\($0)\nx" }.joined(separator: "\n")
+            + "\n## Plan\n- [ ] Draft email (auto)\n- [ ] Send it (ask)"
+        let saved = try object("update_task_brief", ["todo": "Demo", "brief": brief])
+        XCTAssertEqual(saved["need_approval"] as? Int, 1)
+        let progress = try XCTUnwrap(try object("get_task_context", ["todo": "Demo"])["brief_progress"] as? JSONObject)
+        XCTAssertEqual(progress["next"] as? String, "Draft email (auto)")
+        XCTAssertNotNil(try object("get_autonomy_policy")["policy"] as? String)
+    }
+
     func test_catalogCreateUpdateAndBillableRecache() throws {
         _ = try object("create_customer", ["name": "Acme", "email_domains": "acme.com"])
         XCTAssertTrue(try call("create_customer", ["name": "acme"]).isError, "duplicate names are refused")

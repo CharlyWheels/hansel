@@ -208,11 +208,11 @@ on the Acme website", "add a todo to send the deck", "stop the timer".
 - Read: `get_today`, `get_running_entry`, `list_entries`, `get_entry`, `list_projects`,
   `list_customers`, `list_roles`, `list_todos`, `list_meetings`, `get_meeting`,
   `list_todo_proposals`, `get_report`, `get_task_context`, `search_context`,
-  `get_ingest_brief`, `list_context_items`, `get_dossier_work`.
+  `get_autonomy_policy`, `get_ingest_brief`, `list_context_items`, `get_dossier_work`.
 - Create and edit: `start_timer`, `stop_timer`, `create_entry`, `update_entry`,
   `create_todo`, `update_todo`, `create_project`, `update_project`, `create_customer`,
   `update_customer`, `create_role`, `update_role`, `rename_meeting`,
-  `accept_todo_proposal`, `decline_todo_proposal`, `add_context_items`, `update_dossier`.
+  `accept_todo_proposal`, `decline_todo_proposal`, `add_context_items`, `update_dossier`, `update_task_brief`.
 - Todos carry their customer; `create_todo` / `update_todo` take one for top-level todos.
   `create_customer` / `update_customer` take `aliases` and `excluded_from_context`, and
   refuse a name or alias another customer already goes by.
@@ -280,6 +280,40 @@ customer when no todo fits. These items are what the todos' dossiers will be wri
   - When they disagree, or neither is sure, the item waits in the **Inbox** on the Context
     page.
   - Anything about a customer kept out of AI context is not stored.
+- **Reading it.** The Context page lists the Inbox, then each customer with its open
+  todos, then Discarded. A customer or todo shows its dossier and every item behind it;
+  **More** on an item shows its kept facts and **Move…** puts it elsewhere.
+- **Gathering context for a new todo.** **Gather context**, on a todo in Context or on its
+  todo page, asks Codex to search every source for that todo over the last 90 days,
+  however old the items are, and to write its dossier. **Gather context for N new todos**
+  in the toolbar does the same for every open todo that has nothing yet, and **Collect
+  now** runs the regular collection at once. One collection runs at a time; the page
+  shows its progress and the report when it ends.
+- **Briefs and the autonomy policy.** So that an agent can do a todo without asking at
+  every step:
+  - **The brief.** Each todo can have a brief with these sections: Goal, Deliverable,
+    Done when, Constraints, and a Plan whose steps are marked `(auto)` or `(ask)`.
+    - When an agent starts on a todo without a brief, it drafts one, asks you at most
+      three questions, and saves it (`update_task_brief`).
+    - It then ticks the steps off as it works.
+    - The brief and its progress show on the todo's page and in Context, and you can
+      edit it there.
+  - **The autonomy policy.** Your rules for agents live in Settings → Integrations →
+    *What agents may do on their own*, under three headings: do without asking, ask
+    first, never.
+    - The policy comes with every `get_task_context` and from `get_autonomy_policy`.
+    - Hansel's MCP instructions tell agents to follow it.
+- **Dashboard and Analytics.**
+  - **On the Dashboard:**
+    - each open todo shows its customer and the next step from its dossier, or a
+      **Gather context** link when it has none;
+    - **Context to place** lists what waits in the inbox;
+    - **Latest context** shows the newest meetings, threads, emails and pages, when the
+      last collection ran, and a **Collect now** link.
+  - **In Analytics**, *Customers, todos and context* compares, for the period, the time
+    tracked per customer and per open todo with what happened (items by source). It
+    flags customers with a lot going on and no time tracked, and shows how much of the
+    collected context was placed automatically.
 - **The Inbox.** Assign each item to a todo or customer, or discard it. Assigning offers to
   add the item's domains or channel to the customer's aliases. Your latest decisions are
   shown to Codex as examples on its next run.
@@ -312,9 +346,9 @@ customer when no todo fits. These items are what the todos' dossiers will be wri
   leave out customers kept out of AI context.
 - **Schedule.** `scripts/context-ingest/install.sh` runs the collection every 3 hours
   through launchd, and a run missed while the Mac slept happens on wake.
-  - The installer copies the scripts to `~/Library/Application Support/TimeTracker/context-ingest/`
-    and runs them from there, because launchd may not read `~/Documents`. Run it again
-    after changing the prompt.
+  - The scripts ship inside Hansel.app (`Contents/Resources/context-ingest/`), and the job
+    runs that copy because launchd may not read `~/Documents`. So `make install` updates
+    the scheduled collection too.
   - `INTERVAL_HOURS=6 scripts/context-ingest/install.sh` changes the interval.
   - `scripts/context-ingest/install.sh uninstall` removes it.
   - Logs are written to `~/Library/Logs/TimeTracker/context-ingest-*.log`.

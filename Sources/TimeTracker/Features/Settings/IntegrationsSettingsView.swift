@@ -7,6 +7,7 @@ struct IntegrationsSettingsView: View {
     @Environment(MCPServer.self) private var server
     @AppStorage(MCPServer.enabledKey) private var enabled = false
     @State private var copied: String?
+    @AppStorage(AutonomyPolicy.defaultsKey) private var policy = ""
 
     /// The binary assistants launch; the installed app's own, wherever it lives.
     private var command: String {
@@ -23,6 +24,25 @@ struct IntegrationsSettingsView: View {
                 Text("MCP")
             } footer: {
                 Text("Assistants can read your entries, todos, projects, customers, roles and meetings, start and stop the timer, and create or edit those items. They cannot delete anything. Only apps you set up on this Mac can connect, and only while Hansel is open; what an assistant reads goes to its own AI provider.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
+                TextEditor(text: Binding(
+                    get: { policy.isEmpty ? AutonomyPolicy.defaultText : policy },
+                    set: { policy = $0 == AutonomyPolicy.defaultText ? "" : $0 }
+                ))
+                .font(.system(.callout, design: .monospaced))
+                .frame(minHeight: 260)
+                HStack {
+                    Spacer()
+                    Button("Restore default") { policy = "" }
+                        .disabled(policy.isEmpty)
+                }
+            } header: {
+                Text("What agents may do on their own")
+            } footer: {
+                Text("Every agent working on your todos through Hansel gets these rules with the todo's context: what to do without asking, what to ask first, and what never to do. Steps of a todo's brief are marked (auto) or (ask) by them.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
