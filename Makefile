@@ -39,7 +39,7 @@ app: build
 	@if [ -f $(ICON_SRC) ]; then cp $(ICON_SRC) $(ICON_DST); else echo "⚠  $(ICON_SRC) missing — run 'make icon'"; fi
 	# The context collection (run by Hansel's buttons and by launchd) ships inside the app.
 	mkdir -p $(CONTENTS)/Resources/context-ingest
-	cp scripts/context-ingest/run.sh scripts/context-ingest/prompt.md scripts/context-ingest/prompt-todos.md $(CONTENTS)/Resources/context-ingest/
+	cp scripts/context-ingest/run.sh scripts/context-ingest/prompt.md scripts/context-ingest/prompt-todos.md scripts/context-ingest/prompt-work.md $(CONTENTS)/Resources/context-ingest/
 	chmod +x $(CONTENTS)/Resources/context-ingest/run.sh
 	codesign --force --sign "$(SIGN_IDENTITY)" --entitlements $(ENTITLEMENTS) --options runtime $(APP_BUNDLE)
 	@echo "Built $(APP_BUNDLE) (signed with: $(SIGN_IDENTITY))"

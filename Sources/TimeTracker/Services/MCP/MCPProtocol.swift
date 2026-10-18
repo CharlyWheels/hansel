@@ -92,7 +92,10 @@ final class MCPHandler {
     policy: do on your own what it allows, ask before what it lists under "Ask first", \
     never do what it forbids. If the todo has no brief, draft one, ask the user at most \
     three questions, and save it with update_task_brief; then work through its plan, \
-    ticking steps as they are done.
+    ticking steps as they are done. When asked to work on the delegated todos, loop on \
+    next_delegated_task: report with log_progress, ask_user and request_approval (never \
+    send or publish without an approval it returns), and hand finished work over with \
+    submit_deliverable.
     """
 
     // MARK: - JSON-RPC envelopes

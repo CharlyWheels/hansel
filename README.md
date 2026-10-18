@@ -212,7 +212,8 @@ on the Acme website", "add a todo to send the deck", "stop the timer".
 - Create and edit: `start_timer`, `stop_timer`, `create_entry`, `update_entry`,
   `create_todo`, `update_todo`, `create_project`, `update_project`, `create_customer`,
   `update_customer`, `create_role`, `update_role`, `rename_meeting`,
-  `accept_todo_proposal`, `decline_todo_proposal`, `add_context_items`, `update_dossier`, `update_task_brief`.
+  `accept_todo_proposal`, `decline_todo_proposal`, `add_context_items`, `update_dossier`, `update_task_brief`, `delegate_todo`,
+  `next_delegated_task`, `log_progress`, `ask_user`, `request_approval`, `submit_deliverable`.
 - Todos carry their customer; `create_todo` / `update_todo` take one for top-level todos.
   `create_customer` / `update_customer` take `aliases` and `excluded_from_context`, and
   refuse a name or alias another customer already goes by.
@@ -303,6 +304,23 @@ customer when no todo fits. These items are what the todos' dossiers will be wri
     first, never.
     - The policy comes with every `get_task_context` and from `get_autonomy_policy`.
     - Hansel's MCP instructions tell agents to follow it.
+- **Delegating todos to agents.** **Delegate to agents**, on a todo's page, in Context, or
+  by asking Codex (`delegate_todo`), puts the todo in the agents' queue.
+  - **Running them.** **Run agents now**, on the **Agents** page, starts Codex
+    (`run.sh --work`, read-only sandbox). They never start on their own. Codex takes one
+    queued todo after another (`next_delegated_task`, at most three per run), writes
+    or completes its brief, and works through the plan.
+  - **What it leaves.** Drafts (unsent emails and Slack messages, pages in your
+    personal space), progress (`log_progress`), questions (`ask_user`), the exact
+    action for anything that needs your OK (`request_approval`), and the finished work
+    (`submit_deliverable`).
+  - **Your part.** The Agents page lists what needs you and what is ready for review.
+    - Answer a question, approve or reject an action, accept a deliverable (which
+      completes the todo), or send it back with what to change.
+    - The next run carries on from your decisions. An action is handed back as
+      approved only after you approved it in Hansel.
+  - The Dashboard shows **Agents need you** when something waits. You can also ask
+    Codex in a session to "work on my delegated todos", with the same tools.
 - **Dashboard and Analytics.**
   - **On the Dashboard:**
     - each open todo shows its customer and the next step from its dossier, or a

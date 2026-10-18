@@ -393,6 +393,58 @@ final class MCPTests: XCTestCase {
         XCTAssertNotNil(try object("get_autonomy_policy")["policy"] as? String)
     }
 
+    func test_delegationLoopWithApprovalsAndReview() throws {
+        _ = try object("create_customer", ["name": "Personal", "excluded_from_context": true])
+        _ = try object("create_todo", ["title": "Email Ferran"])
+        _ = try object("create_todo", ["title": "Visa", "customer": "Personal"])
+        XCTAssertTrue(try call("delegate_todo", ["todo": "Visa"]).isError, "personal todos are never delegated")
+        XCTAssertTrue(try object("next_delegated_task")["task"] is NSNull, "nothing queued")
+        XCTAssertTrue(try call("log_progress", ["todo": "Email Ferran", "text": "x"]).isError, "only delegated todos")
+
+        _ = try object("delegate_todo", ["todo": "Email Ferran"])
+        let first = try object("next_delegated_task")
+        let task = try XCTUnwrap(first["task"] as? JSONObject)
+        let id = try XCTUnwrap((task["todo"] as? JSONObject)?["id"] as? String)
+        XCTAssertNotNil(task["autonomy_policy"])
+        XCTAssertTrue(try object("next_delegated_task")["task"] is NSNull, "being worked on")
+
+        _ = try object("log_progress", ["todo": id, "text": "Drafted the email", "url": "https://outlook/draft"])
+        let asked = try object("request_approval", ["todo": id, "action": "Send email to Ferran",
+                                                    "details": "To: ferran@clustag.com\nHi Ferran…"])
+        XCTAssertEqual(asked["state"] as? String, "waiting")
+        XCTAssertTrue(try object("next_delegated_task")["task"] is NSNull, "waits for the user")
+
+        let notes = (try? context.fetch(FetchDescriptor<AgentNote>())) ?? []
+        let approval = try XCTUnwrap(notes.first { $0.kind == .approval })
+        DelegationService.approve(approval, comment: "OK, send it", context: context)
+        let resumed = try object("next_delegated_task")
+        let decisions = try XCTUnwrap(resumed["decisions"] as? [JSONObject])
+        XCTAssertEqual(decisions.first?["decision"] as? String, "approved")
+        XCTAssertEqual(decisions.first?["user_says"] as? String, "OK, send it")
+        XCTAssertEqual(approval.status, .closed, "handed back once")
+
+        _ = try object("submit_deliverable", ["todo": id, "title": "Email sent", "summary": "Done when met."])
+        let deliverable = try XCTUnwrap(((try? context.fetch(FetchDescriptor<AgentNote>())) ?? []).first { $0.kind == .deliverable })
+        DelegationService.sendBack(deliverable, comment: "Add the network requirements", context: context)
+        let again = try object("next_delegated_task")
+        XCTAssertEqual((again["decisions"] as? [JSONObject])?.first?["decision"] as? String, "sentBack")
+        _ = try object("submit_deliverable", ["todo": id, "title": "Email sent with requirements", "summary": "ok"])
+        let final = try XCTUnwrap(((try? context.fetch(FetchDescriptor<AgentNote>())) ?? []).first { $0.kind == .deliverable && $0.status == .open })
+        DelegationService.accept(final, context: context)
+        let todo = try XCTUnwrap(fetchTodo("Email Ferran"))
+        XCTAssertTrue(todo.isCompleted)
+        XCTAssertEqual(todo.delegation, .none)
+    }
+
+    func test_aDeadAgentRunReturnsItsTodoToTheQueue() throws {
+        let todo = try XCTUnwrap(HanselActions.addTodo(title: "Stuck", context: context))
+        try DelegationService.delegate(todo, context: context)
+        let start = Date()
+        XCTAssertEqual(DelegationService.takeNext(context: context, now: start)?.id, todo.id)
+        XCTAssertNil(DelegationService.takeNext(context: context, now: start.addingTimeInterval(3600)))
+        XCTAssertEqual(DelegationService.takeNext(context: context, now: start.addingTimeInterval(4 * 3600))?.id, todo.id)
+    }
+
     func test_catalogCreateUpdateAndBillableRecache() throws {
         _ = try object("create_customer", ["name": "Acme", "email_domains": "acme.com"])
         XCTAssertTrue(try call("create_customer", ["name": "acme"]).isError, "duplicate names are refused")

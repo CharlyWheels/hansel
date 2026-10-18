@@ -12,6 +12,8 @@ final class ContextRunner {
     enum Run: Equatable {
         case everything
         case todos(Set<UUID>)
+        /// Agents work on the delegated todos. Only ever started by the user.
+        case agents
     }
 
     private(set) var current: Run?
@@ -39,6 +41,10 @@ final class ContextRunner {
     }
 
     func collectEverything() { start(.everything, arguments: []) }
+
+    /// Codex works through the delegated todos, read-only: it leaves drafts, questions
+    /// and approval requests in Hansel.
+    func runAgents() { start(.agents, arguments: ["--work"]) }
 
     func gather(_ todoIDs: [UUID]) {
         guard !todoIDs.isEmpty else { return }
@@ -80,7 +86,12 @@ final class ContextRunner {
         AppLogger.log("context", level: .info, "run_ended kind=\(Self.kind(run)) status=\(status)")
         switch status {
         case 0:
-            let report = run == .everything ? "last-report.txt" : "last-todos-report.txt"
+            let report: String
+            switch run {
+            case .everything: report = "last-report.txt"
+            case .todos: report = "last-todos-report.txt"
+            case .agents: report = "last-work-report.txt"
+            }
             let text = (try? String(contentsOf: Self.reportURL.appending(path: report), encoding: .utf8))?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             finish(message: text?.isEmpty == false ? text! : "Done.", failed: false)
@@ -100,6 +111,7 @@ final class ContextRunner {
         switch run {
         case .everything: return "everything"
         case let .todos(ids): return "todos(\(ids.count))"
+        case .agents: return "agents"
         }
     }
 }

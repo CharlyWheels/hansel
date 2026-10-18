@@ -5,6 +5,9 @@
 #   run.sh                    everything new since the last run (launchd, every few hours)
 #   run.sh --todos ID[,ID…]   everything about these todos, however old (Hansel's
 #                             "Gather context" button); moves no collection cursor
+#   run.sh --work             work on the todos delegated to agents, only when the user
+#                             presses "Run agents now" in Hansel; read-only sandbox, so
+#                             the agent leaves drafts and requests, never files
 #
 # Exit codes: 0 done (or Hansel not running), 75 another run is in progress, else failed.
 set -u
@@ -18,7 +21,10 @@ WORKDIR="$HOME/Library/Application Support/TimeTracker/context-ingest"
 LOCK="$WORKDIR/run.lock"
 
 TODOS=""
-if [[ "${1:-}" == "--todos" ]]; then
+WORK=""
+if [[ "${1:-}" == "--work" ]]; then
+  WORK=1
+elif [[ "${1:-}" == "--todos" ]]; then
   TODOS="${2:-}"
   if [[ ! "$TODOS" =~ '^[0-9A-Fa-f,-]+$' ]]; then print -u2 "usage: run.sh [--todos ID[,ID…]]"; exit 64; fi
 fi
@@ -46,7 +52,11 @@ if ! mkdir "$LOCK" 2>/dev/null; then
 fi
 trap 'rm -rf "$LOCK"' EXIT
 
-if [[ -n "$TODOS" ]]; then
+if [[ -n "$WORK" ]]; then
+  log "start work"
+  PROMPT=$(cat "$SCRIPT_DIR/prompt-work.md")
+  REPORT="$WORKDIR/last-work-report.txt"
+elif [[ -n "$TODOS" ]]; then
   log "start todos=$TODOS"
   PROMPT=$(sed "s/{{TODOS}}/$TODOS/g" "$SCRIPT_DIR/prompt-todos.md")
   REPORT="$WORKDIR/last-todos-report.txt"

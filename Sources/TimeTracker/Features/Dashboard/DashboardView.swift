@@ -19,6 +19,7 @@ struct DashboardView: View {
     @Query(sort: [SortDescriptor(\ContextItem.occurredAt, order: .reverse)]) private var contextItems: [ContextItem]
     @Query private var customers: [Customer]
     @Environment(ContextRunner.self) private var runner
+    @Query private var agentNotes: [AgentNote]
 
     @State private var editingEntry: TimeEntry?
 
@@ -43,6 +44,7 @@ struct DashboardView: View {
                     .frame(maxWidth: .infinity)
                     VStack(spacing: Theme.spacing) {
                         if !proposals.isEmpty { proposalsCard }
+                        if agentNotes.contains(where: \.needsUser) { agentsCard }
                         if !inbox.isEmpty { contextInboxCard }
                         todosCard
                     }
@@ -248,6 +250,31 @@ struct DashboardView: View {
             }
         }
         .font(.callout)
+    }
+
+    // MARK: - Agents
+
+    private var agentsCard: some View {
+        let waiting = agentNotes.filter(\.needsUser).sorted { $0.createdAt > $1.createdAt }
+        return Card(tint: .orange) {
+            VStack(alignment: .leading, spacing: 8) {
+                SectionHeader("Agents need you", systemImage: "person.2.badge.gearshape") {
+                    Text("\(waiting.count)").font(.callout.weight(.semibold))
+                }
+                ForEach(waiting.prefix(3)) { note in
+                    Label {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(note.title).font(.callout).lineLimit(1)
+                            Text(allTodos.first { $0.id == note.todoID }?.title ?? "")
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    } icon: { Image(systemName: AgentsView.icon(note.kind)).foregroundStyle(.secondary) }
+                }
+                Button("Open Agents") { router.selection = .agents }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            }
+        }
     }
 
     // MARK: - Context
