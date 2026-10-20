@@ -57,7 +57,8 @@ extension MCPTools {
                 name: "request_approval", title: "Request approval",
                 description: """
                 Asks the user to approve an action the autonomy policy or a (ask) brief step reserves for them: \
-                sending a message or email, publishing, sharing customer data, touching production. Give the \
+                publishing, sharing customer data, touching production. Never for sending a message or email: \
+                agents never send; leave a draft and submit it as a deliverable. Give the \
                 exact action: recipients, channel or page, and the full text. Do not perform it now; once \
                 approved it comes back in next_delegated_task's `decisions`.
                 """,

@@ -93,9 +93,9 @@ final class MCPHandler {
     never do what it forbids. If the todo has no brief, draft one, ask the user at most \
     three questions, and save it with update_task_brief; then work through its plan, \
     ticking steps as they are done. When asked to work on the delegated todos, loop on \
-    next_delegated_task: report with log_progress, ask_user and request_approval (never \
-    send or publish without an approval it returns), and hand finished work over with \
-    submit_deliverable.
+    next_delegated_task: report with log_progress, ask_user and request_approval, and hand \
+    finished work over with submit_deliverable. Agents never send emails or messages: \
+    they leave drafts (Outlook Drafts for email) for the user to send.
     """
 
     // MARK: - JSON-RPC envelopes

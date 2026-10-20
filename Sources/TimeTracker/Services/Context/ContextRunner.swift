@@ -95,6 +95,9 @@ final class ContextRunner {
             let text = (try? String(contentsOf: Self.reportURL.appending(path: report), encoding: .utf8))?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             finish(message: text?.isEmpty == false ? text! : "Done.", failed: false)
+        case 3:
+            let alert = (try? String(contentsOf: Self.reportURL.appending(path: "send-alert.txt"), encoding: .utf8)) ?? ""
+            finish(message: "Warning: the agent called a tool that sends email or messages, which it must never do. Check your Sent folder and Slack.\n" + alert, failed: true)
         case 75:
             finish(message: "Another collection was already running. Try again when it finishes.", failed: true)
         default:

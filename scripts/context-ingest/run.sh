@@ -9,7 +9,8 @@
 #                             presses "Run agents now" in Hansel; read-only sandbox, so
 #                             the agent leaves drafts and requests, never files
 #
-# Exit codes: 0 done (or Hansel not running), 75 another run is in progress, else failed.
+# Exit codes: 0 done (or Hansel not running), 3 a sending tool was called (see
+# send-alert.txt), 75 another run is in progress, else failed.
 set -u
 
 SCRIPT_DIR=${0:A:h}
@@ -69,6 +70,7 @@ rm -f "$REPORT"
 
 # Read-only sandbox: Codex needs no shell or file access, only its connectors and the
 # Hansel MCP server. Approvals cannot be answered unattended, so none are asked.
+RUN_OUT="$WORKDIR/last-run-output.txt"
 print -r -- "$PROMPT" | "$CODEX" exec \
   --skip-git-repo-check \
   --ephemeral \
@@ -76,8 +78,18 @@ print -r -- "$PROMPT" | "$CODEX" exec \
   --sandbox read-only \
   -c approval_policy='"never"' \
   --output-last-message "$REPORT" \
-  - >> "$LOG" 2>&1
+  - > "$RUN_OUT" 2>&1
 exit_code=$?
+cat "$RUN_OUT" >> "$LOG"
 log "end status=$exit_code"
 [[ -f "$REPORT" ]] && { print -r -- "--- report ---"; cat "$REPORT"; print; } >> "$LOG"
+
+# Agents never send. Codex cannot be stopped from calling a connector's sending tools,
+# so every run is checked afterwards and any such call is reported loudly.
+SENT=$(grep -E '^mcp: codex_apps/[^ ]*(send_email|send_email_on_behalf|reply_to_email|forward_email|send_message|post_message|send_draft)[^ ]* started' "$RUN_OUT" | sort -u)
+if [[ -n "$SENT" ]]; then
+  log "ALERT: a sending tool was called: $SENT"
+  { print -r -- "ALERT: this run called a sending tool. Check your Sent folder and Slack."; print -r -- "$SENT"; } > "$WORKDIR/send-alert.txt"
+  exit 3
+fi
 exit $exit_code
