@@ -34,7 +34,9 @@ mkdir -p "$LOG_DIR" "$WORKDIR"
 log() { print -r -- "$(date '+%F %T') $*" >> "$LOG"; }
 
 # Hansel answers MCP only while it runs; the next run catches up from the same point.
-if ! pgrep -xq Hansel; then
+# Started by Hansel itself (HANSEL_RUNNER), it is running; pgrep cannot always see it
+# from a process the app launched.
+if [[ -z "${HANSEL_RUNNER:-}" ]] && ! pgrep -xq Hansel; then
   log "skip: Hansel is not running"
   exit 0
 fi

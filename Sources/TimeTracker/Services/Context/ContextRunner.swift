@@ -60,6 +60,9 @@ final class ContextRunner {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.arguments = [script.path] + arguments
+        var environment = ProcessInfo.processInfo.environment
+        environment["HANSEL_RUNNER"] = "1"
+        process.environment = environment
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         process.terminationHandler = { [weak self] finished in
