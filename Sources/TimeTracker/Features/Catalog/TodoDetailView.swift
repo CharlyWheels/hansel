@@ -109,6 +109,7 @@ struct TodoDetailView: View {
                         Button("Open in Context") { router.openContext(.todo(todo.id)) }
                             .buttonStyle(.link)
                         Spacer()
+                        DelegateButton(todo: todo)
                         GatherButton(todo: todo)
                     }
                 }

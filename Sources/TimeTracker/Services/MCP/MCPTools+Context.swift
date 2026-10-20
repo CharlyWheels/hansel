@@ -459,8 +459,11 @@ extension MCPTools {
 
     // MARK: get_task_context
 
-    private func taskContext(_ args: MCPArguments, now: Date = Date()) throws -> JSONObject {
-        let todo = try self.todo(try args.requiredString("todo"))
+    private func taskContext(_ args: MCPArguments) throws -> JSONObject {
+        try taskContextJSON(for: try self.todo(try args.requiredString("todo")))
+    }
+
+    func taskContextJSON(for todo: Todo, now: Date = Date()) throws -> JSONObject {
         guard !todo.isExcludedFromContext else {
             throw ToolError("This todo belongs to a customer kept out of AI context.")
         }

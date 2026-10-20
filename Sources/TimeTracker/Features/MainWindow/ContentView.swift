@@ -6,6 +6,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case todos = "Todos"
     case meetings = "Meetings"
     case context = "Context"
+    case agents = "Agents"
     case entries = "Entries"
     case timeline = "Timeline"
     case analytics = "Analytics"
@@ -23,6 +24,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .todos: return "checklist"
         case .meetings: return "waveform"
         case .context: return "tray.full"
+        case .agents: return "person.2.badge.gearshape"
         case .analytics: return "chart.bar"
         case .projects: return "folder"
         case .customers: return "person.2"
@@ -32,7 +34,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 
     var section: SidebarSection {
         switch self {
-        case .dashboard, .entries, .timeline, .todos, .meetings, .context: return .tracking
+        case .dashboard, .entries, .timeline, .todos, .meetings, .context, .agents: return .tracking
         case .analytics: return .reports
         case .projects, .customers, .roles: return .catalog
         }
@@ -56,6 +58,7 @@ struct ContentView: View {
     @Environment(FocusPromptCenter.self) private var prompts
     @Query(TodoProposal.pendingDescriptor) private var pendingProposals: [TodoProposal]
     @Query private var contextItems: [ContextItem]
+    @Query private var agentNotes: [AgentNote]
 
     var body: some View {
         @Bindable var router = router
@@ -103,6 +106,7 @@ struct ContentView: View {
         switch item {
         case .todos: return pendingProposals.count
         case .context: return contextItems.filter { $0.status == .unassigned }.count
+        case .agents: return agentNotes.filter(\.needsUser).count
         default: return 0
         }
     }
@@ -116,6 +120,7 @@ struct ContentView: View {
         case .todos:     TodosView()
         case .meetings:  MeetingsView()
         case .context:   ContextView()
+        case .agents:    AgentsView()
         case .analytics: AnalyticsView()
         case .projects:  ProjectsView()
         case .customers: CustomersView()

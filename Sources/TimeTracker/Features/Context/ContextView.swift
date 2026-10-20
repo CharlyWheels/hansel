@@ -161,17 +161,24 @@ struct ContextView: View {
 }
 
 /// What the collection running in the background is doing, and how the last one ended.
-private struct RunnerBanner: View {
+struct RunnerBanner: View {
     @Environment(ContextRunner.self) private var runner
     @State private var hidden: String?
+
+    static func describe(_ run: ContextRunner.Run?) -> String {
+        switch run {
+        case .everything: return "Codex is collecting everything new. This takes a few minutes; items and dossiers appear as they arrive."
+        case .todos: return "Codex is gathering context for the chosen todos. This takes a few minutes; items and dossiers appear as they arrive."
+        case .agents: return "Agents are working on your delegated todos. Their progress, questions and requests appear as they go."
+        case nil: return ""
+        }
+    }
 
     var body: some View {
         if runner.isRunning {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text(runner.current == .everything
-                     ? "Codex is collecting everything new. This takes a few minutes; items and dossiers appear as they arrive."
-                     : "Codex is gathering context for the chosen todos. This takes a few minutes; items and dossiers appear as they arrive.")
+                Text(Self.describe(runner.current))
                     .font(.callout)
                 Spacer()
                 if let started = runner.startedAt {
@@ -284,7 +291,10 @@ private struct TodoContextDetail: View {
                         }
                     }
                     Spacer()
-                    GatherButton(todo: todo)
+                    VStack(alignment: .trailing, spacing: 6) {
+                        GatherButton(todo: todo)
+                        DelegateButton(todo: todo)
+                    }
                 }
             }
             DossierSection(

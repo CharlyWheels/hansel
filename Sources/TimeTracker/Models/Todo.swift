@@ -29,6 +29,13 @@ final class Todo {
     var brief: String = ""
     var briefUpdatedAt: Date? = nil
 
+    // MARK: Delegation
+    /// Whether agents work on this todo on their own (`Delegation`).
+    var delegationRaw: String = Delegation.none.rawValue
+    var delegatedAt: Date? = nil
+    /// Last change of the delegation state, to notice an agent run that died midway.
+    var delegationUpdatedAt: Date? = nil
+
     // MARK: Dossier
     /// What is known about this todo, in Markdown, written by the assistant from its
     /// context items (and editable by the user). Defaults on the declarations so
@@ -65,6 +72,30 @@ final class Todo {
         self.sortOrder = sortOrder
         self.parent = parent
         self.relatedProject = relatedProject
+    }
+}
+
+/// Where a todo stands with the agents.
+enum Delegation: String, CaseIterable {
+    /// Not delegated.
+    case none
+    /// Waiting for an agent to pick it up.
+    case queued
+    /// An agent is on it.
+    case working
+    /// The agent needs the user: a question or an action to approve.
+    case waiting
+    /// A deliverable is ready for the user to review.
+    case review
+
+    var label: String {
+        switch self {
+        case .none: return "Not delegated"
+        case .queued: return "Queued"
+        case .working: return "Agent working"
+        case .waiting: return "Needs you"
+        case .review: return "Ready for review"
+        }
     }
 }
 
@@ -116,6 +147,11 @@ extension Todo {
     }
 
     var isExcludedFromContext: Bool { effectiveCustomer?.excludedFromContext == true }
+
+    var delegation: Delegation {
+        get { Delegation(rawValue: delegationRaw) ?? .none }
+        set { delegationRaw = newValue.rawValue }
+    }
 
     /// Children sorted by sortOrder then createdAt — used by the prompt builder
     /// and tree views so order is stable everywhere.

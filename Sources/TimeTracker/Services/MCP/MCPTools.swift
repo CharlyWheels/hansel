@@ -36,7 +36,7 @@ final class MCPTools {
         self.controller = controller
         self.proposals = proposals
         self.contextItems = contextItems ?? ContextService(modelContext: context)
-        tools = readTools() + writeTools() + contextTools() + dossierTools() + taskContextTools()
+        tools = readTools() + writeTools() + contextTools() + dossierTools() + taskContextTools() + agentTools()
     }
 
     var definitions: [JSONObject] {
@@ -289,6 +289,7 @@ final class MCPTools {
             "project": Self.ref(todo.relatedProject?.id, todo.relatedProject?.name),
             // A subtask's is its top-level todo's.
             "customer": Self.ref(todo.effectiveCustomer?.id, todo.effectiveCustomer?.name),
+            "delegation": todo.delegation.rawValue,
             "notes": Self.value(todo.notes),
             "subtask_count": todo.subtasks.count,
         ]

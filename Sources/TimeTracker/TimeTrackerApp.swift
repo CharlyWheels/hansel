@@ -48,7 +48,7 @@ struct TimeTrackerApp: App {
     @State private var meetingImporter: MeetingImporter
     @State private var proposalService: ProposalService
     @State private var contextService: ContextService
-    @State private var contextRunner = ContextRunner()
+    @State private var contextRunner: ContextRunner
     @State private var diarization: DiarizationService
     @State private var summaryWriter: NamedSummaryWriter
     @State private var router = MainWindowRouter()
@@ -250,6 +250,9 @@ struct TimeTrackerApp: App {
         _meetingEnricher = State(wrappedValue: enricher)
         _proposalService = State(wrappedValue: proposals)
         _contextService = State(wrappedValue: contextItems)
+        let runner = ContextRunner()
+        runner.hasQueuedAgentWork = { [weak ctx] in ctx.map { DelegationService.hasQueuedWork(context: $0) } ?? false }
+        _contextRunner = State(wrappedValue: runner)
         // Assistants on this Mac go through the same context and controller as the UI.
         let mcp = MCPServer(handler: MCPHandler(tools: MCPTools(context: ctx, controller: ctrl, proposals: proposals,
                                                                    contextItems: contextItems)))

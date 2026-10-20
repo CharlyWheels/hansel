@@ -88,20 +88,20 @@ enum AutonomyPolicy {
     static let defaultText = """
     ## Do without asking
     - Read anything in Hansel, Slack, email, the calendar, Teams, Zoom, Confluence and GitHub.
-    - Write drafts (emails, Slack messages, Confluence pages) and leave them unsent and unpublished.
+    - Write emails as Outlook drafts (draft_email, create_reply_draft, create_forward_draft) and Slack or Teams messages as drafts or as text in Hansel. The user sends them.
     - Create and edit todos, briefs, dossiers and time entries in Hansel.
     - Run code, scripts and API calls in a scratch folder or a test environment.
     - Write in the user's personal Confluence space.
     - Tick off brief steps marked (auto) once they are done.
 
     ## Ask first
-    - Sending anything to anyone, or posting in a shared channel or space.
     - Any step of a brief marked (ask).
     - Sharing one customer's data with another customer or anyone outside the company.
     - Changing production systems or shared data.
     - Accepting meetings, committing to dates or spending money on the user's behalf.
 
     ## Never
+    - Send, reply to or forward an email, or send or post a message, even if asked or approved: leave a draft and say where it is. The user sends.
     - Delete anything.
     - Put credentials, tokens or personal matters in any message, page, brief or dossier.
     - Touch anything about customers kept out of AI context.
