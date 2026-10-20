@@ -319,6 +319,10 @@ customer when no todo fits. These items are what the todos' dossiers will be wri
       completes the todo), or send it back with what to change.
     - The next run carries on from your decisions. An action is handed back as
       approved only after you approved it in Hansel.
+  - **Agents never send.** Emails go to your Outlook Drafts and messages are written
+    in Hansel; you send them. Codex keeps its connectors' sending tools whatever its
+    configuration says, so each run is checked afterwards. A run that called one is
+    reported as a warning and logged in `send-alert.txt`.
   - The Dashboard shows **Agents need you** when something waits. You can also ask
     Codex in a session to "work on my delegated todos", with the same tools.
 - **Dashboard and Analytics.**
