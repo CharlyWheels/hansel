@@ -10,6 +10,7 @@ struct AgentsView: View {
     @Environment(MainWindowRouter.self) private var router
 
     @Query(sort: [SortDescriptor(\AgentNote.createdAt, order: .reverse)]) private var notes: [AgentNote]
+    @AppStorage(ContextRunner.autoRunKey) private var autoRun = true
     @Query(sort: [SortDescriptor(\Todo.sortOrder)]) private var todos: [Todo]
 
     private var delegated: [Todo] {
@@ -45,8 +46,9 @@ struct AgentsView: View {
                               ? "Nothing is queued. Delegate a todo, or answer what the agents asked."
                               : "Codex works through the queued todos. It only drafts and asks: nothing is sent without your approval here.")
                     }
+                    Toggle("Start agents on their own when you delegate a todo or answer them", isOn: $autoRun)
                 } footer: {
-                    Text("Agents work read-only: they leave drafts, questions and requests for approval. An action you approve is carried out on the next run.")
+                    Text("Agents work read-only and never send: emails are left in your Outlook Drafts, and they ask before anything else the policy reserves for you. Each run takes up to three todos and carries on while there is queued work.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
 

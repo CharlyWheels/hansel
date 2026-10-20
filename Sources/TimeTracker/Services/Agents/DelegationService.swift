@@ -15,6 +15,13 @@ enum DelegationService {
 
     struct Rejection: Error { let message: String }
 
+    /// Posted when a todo was delegated or the user answered the agents, so agents can start.
+    static let changed = Notification.Name("DelegationService.changed")
+
+    private static func notify() {
+        NotificationCenter.default.post(name: changed, object: nil)
+    }
+
     // MARK: - The user
 
     static func delegate(_ todo: Todo, context: ModelContext, now: Date = Date()) throws {
@@ -27,6 +34,7 @@ enum DelegationService {
         todo.delegatedAt = now
         todo.delegationUpdatedAt = now
         try? context.save()
+        notify()
     }
 
     /// Takes the todo back; open questions and approvals are closed unanswered.
@@ -81,6 +89,7 @@ enum DelegationService {
             todo.delegationUpdatedAt = now
         }
         try? context.save()
+        notify()
     }
 
     // MARK: - The agent

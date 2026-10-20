@@ -12,7 +12,8 @@ final class ContextRunner {
     enum Run: Equatable {
         case everything
         case todos(Set<UUID>)
-        /// Agents work on the delegated todos. Only ever started by the user.
+        /// Agents work on the delegated todos: started by the user, or on its own when
+        /// a todo is delegated or the user answers the agents (`autoRunKey`).
         case agents
     }
 
@@ -23,6 +24,45 @@ final class ContextRunner {
     private(set) var lastFailed = false
 
     @ObservationIgnored private var process: Process?
+
+    static let autoRunKey = "agents.autoRun"
+    /// Agents start on their own when there is queued work. On unless turned off.
+    static var autoRun: Bool { UserDefaults.standard.object(forKey: autoRunKey) as? Bool ?? true }
+    /// Whether any delegated todo is waiting for an agent; set by the app.
+    @ObservationIgnored var hasQueuedAgentWork: () -> Bool = { false }
+    /// An agent run asked for while another run was going.
+    @ObservationIgnored private var agentRunPending = false
+    /// Agent runs started on their own since the user last did something, so a run that
+    /// keeps failing to move a todo does not loop.
+    @ObservationIgnored private var automaticAgentRuns = 0
+    static let maxAutomaticAgentRuns = 3
+
+    init() {
+        NotificationCenter.default.addObserver(
+            forName: DelegationService.changed, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.delegationChanged() }
+        }
+        // Todos left queued when Hansel last quit get their agents once it has settled.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(30))
+            self?.delegationChanged()
+        }
+    }
+
+    /// A todo was delegated or the user answered the agents: start them, now or after
+    /// the run in progress.
+    func delegationChanged() {
+        automaticAgentRuns = 0
+        guard Self.autoRun, hasQueuedAgentWork() else { return }
+        if isRunning { agentRunPending = true } else { startAutomatically() }
+    }
+
+    private func startAutomatically() {
+        guard automaticAgentRuns < Self.maxAutomaticAgentRuns else { return }
+        automaticAgentRuns += 1
+        runAgents()
+    }
 
     var isRunning: Bool { current != nil }
 
@@ -87,6 +127,24 @@ final class ContextRunner {
         current = nil
         startedAt = nil
         AppLogger.log("context", level: .info, "run_ended kind=\(Self.kind(run)) status=\(status)")
+        defer {
+            // Carry on with what is still queued: work asked for during this run, or todos
+            // beyond the three a run takes. Not after a failure, which would only repeat.
+            let pending = agentRunPending
+            agentRunPending = false
+            if Self.autoRun, (pending || run == .agents), hasQueuedAgentWork() {
+                if status == 0 {
+                    startAutomatically()
+                } else if status == 75 {
+                    // The scheduled collection holds the lock: try again once it is likely done.
+                    Task { @MainActor [weak self] in
+                        try? await Task.sleep(for: .seconds(300))
+                        guard let self, !self.isRunning, self.hasQueuedAgentWork() else { return }
+                        self.startAutomatically()
+                    }
+                }
+            }
+        }
         switch status {
         case 0:
             let report: String

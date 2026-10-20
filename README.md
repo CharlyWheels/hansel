@@ -306,10 +306,14 @@ customer when no todo fits. These items are what the todos' dossiers will be wri
     - Hansel's MCP instructions tell agents to follow it.
 - **Delegating todos to agents.** **Delegate to agents**, on a todo's page, in Context, or
   by asking Codex (`delegate_todo`), puts the todo in the agents' queue.
-  - **Running them.** **Run agents now**, on the **Agents** page, starts Codex
-    (`run.sh --work`, read-only sandbox). They never start on their own. Codex takes one
-    queued todo after another (`next_delegated_task`, at most three per run), writes
-    or completes its brief, and works through the plan.
+  - **Running them.** The agents start on their own when you delegate a todo, when you
+    answer them, and when Hansel opens with queued todos. You can turn this off on the
+    **Agents** page, where **Run agents now** also starts them by hand. Each run starts
+    Codex (`run.sh --work`, read-only sandbox), takes up to three queued todos
+    (`next_delegated_task`), writes or completes their briefs and works through their
+    plans. It carries on in a new run while todos are still queued, stops after three
+    runs in a row without you doing anything, and retries five minutes later when a
+    collection is in progress.
   - **What it leaves.** Drafts (unsent emails and Slack messages, pages in your
     personal space), progress (`log_progress`), questions (`ask_user`), the exact
     action for anything that needs your OK (`request_approval`), and the finished work
